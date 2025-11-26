@@ -21,8 +21,8 @@ class FreightInput(BaseModel):
         allow_population_by_field_name = True
 
 ## Caminhos dos artefatos ##
-MODEL_PATH = "api_artifacts/TMA_Model.pkl"
-SCALER_PATH = "api_artifacts/TMA_Preprocessor.pkl"
+MODEL_PATH = "api\\api_artifacts\\TMA_Model.pkl"
+SCALER_PATH = "api\\api_artifacts\\TMA_Preprocessor.pkl"
 
 ## Colunas Categoricas e Numericas ##
 NUM_COLS = ["Peso total bruto", "Metro cúbico", "Valor NF", "Volume NF"]
@@ -37,18 +37,12 @@ try:
         preprocessor = pickle.load(f)
 
 except FileNotFoundError:
-    print(f"Erro Crítico: Não foi possível carregar os arquivos .pkl.")
-    print(f"Verifique os caminhos: {MODEL_PATH} e {SCALER_PATH}")
+    print(f"Não foi possível carregar os arquivos .pkl.")
     model = None
     scaler = None
     model_columns = []
-except AttributeError:
-    print("Erro Crítico: O modelo carregado não possui o atributo 'feature_names_in_'.")
-    model = None 
-    scaler = None
-    model_columns = []
 except Exception as e:
-    print(f"Erro inesperado ao carregar modelos: {e}")
+    print(f"{e}")
     model = None
     scaler = None
     model_columns = []
