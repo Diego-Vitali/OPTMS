@@ -1,2 +1,5 @@
-2025/11/26-00:51:23.482 8fd0 Creating DB C:\Users\didiv\Downloads\Nova pasta\TMA\frontend-java\.metadata\.plugins\org.eclipse.swt\EBWebView\Default\Site Characteristics Database since it was missing.
-2025/11/26-00:51:23.488 8fd0 Reusing MANIFEST C:\Users\didiv\Downloads\Nova pasta\TMA\frontend-java\.metadata\.plugins\org.eclipse.swt\EBWebView\Default\Site Characteristics Database/MANIFEST-000001
+2025/12/15-13:19:17.989 89a0 Log #3: 2 ops saved to Table #4 OK
+2025/12/15-13:19:17.990 89a0 Archiving C:\Users\didiv\Downloads\TMA\frontend-java\.metadata\.plugins\org.eclipse.swt\EBWebView\Default\Site Characteristics Database/000003.log: OK
+2025/12/15-13:19:17.991 89a0 Table #4: 2 entries OK
+2025/12/15-13:19:17.992 89a0 Archiving C:\Users\didiv\Downloads\TMA\frontend-java\.metadata\.plugins\org.eclipse.swt\EBWebView\Default\Site Characteristics Database/MANIFEST-000001: OK
+2025/12/15-13:19:17.995 89a0 **** Repaired leveldb C:\Users\didiv\Downloads\TMA\frontend-java\.metadata\.plugins\org.eclipse.swt\EBWebView\Default\Site Characteristics Database; recovered 1 files; 191 bytes. Some data may have been lost. ****
