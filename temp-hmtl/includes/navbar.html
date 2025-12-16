@@ -1,0 +1,57 @@
+<style>
+    .custom-navbar {
+        background-color: #121212;
+        border-bottom: 1px solid #333;
+        box-shadow: 0 4px 20px rgba(230, 81, 0, 0.15);
+        padding: 15px 0;
+        font-family: 'Poppins', sans-serif;
+    }
+
+    .navbar-brand {
+        font-weight: 700;
+        font-size: 1.5rem;
+        color: #ffffff !important;
+        letter-spacing: 1px;
+    }
+
+    .brand-highlight {
+        color: #e65100;
+    }
+
+    .nav-link {
+        color: #cccccc !important;
+        font-weight: 400;
+        margin-left: 20px;
+        transition: all 0.3s ease;
+        font-size: 1rem;
+        white-space: nowrap;
+    }
+
+    .nav-link:hover, .nav-link:focus {
+        color: #e65100 !important;
+        transform: translateY(-2px);
+    }
+</style>
+
+<nav class="navbar navbar-expand custom-navbar">
+    <div class="container"> 
+        
+        <a class="navbar-brand" href="./menu.jsp">
+            <span class="brand-highlight">TMA</span> Logística
+        </a>
+        
+        <div class="navbar-collapse">
+            <ul class="navbar-nav ms-auto align-items-center"> 
+                <li class="nav-item">
+                    <a class="nav-link" href="./previsao.jsp">Fazer Previsão</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#">Consultar Previsões</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="./gerenciarUsuarios.jsp">Gerenciar Usuários</a>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>
