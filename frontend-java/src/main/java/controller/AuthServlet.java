@@ -9,59 +9,65 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 
-
 import dao.UsuarioDao;
 import model.Usuario;
 
 @WebServlet("/authServlet")
 public class AuthServlet extends HttpServlet {
-	private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L;
 
-	protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         
         String action = request.getParameter("action");
         UsuarioDao dao = new UsuarioDao();
         HttpSession session = request.getSession();
 
-        //LOGIN Email + Senha
+   
         if ("login".equals(action)) {
             String email = request.getParameter("email");
             String senha = request.getParameter("senha");
 
-            // Valida no banco DAO
             boolean isValido = dao.autenticar(email, senha);
 
-            // Aqui serve para criar um token aleatório para usar na session
             if (isValido) {
-                String tokenGerado = String.format("%06d", new Random().nextInt(999999));
+//              CARALHA DO TOKENA LEATÓRIO  
+            	String tokenGerado = String.format("%06d", new Random().nextInt(999999));
  
-         
-                session.setAttribute("user_email", email);
+                // CRIA A SESSÃO TEMPORÁRIA
+                session.setAttribute("temp_user_email", email);
                 session.setAttribute("2fa_token", tokenGerado);
-
                 
-                System.out.println(">>> TOKEN GERADO PARA " + email + ": " + tokenGerado);// TESTE
+                System.out.println(">>> TOKEN P/ " + email + ": " + tokenGerado);
                 
                 response.setStatus(HttpServletResponse.SC_OK);
             } else {
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Credenciais inválidas");
             }
         
         //VALIDAR TOKEN (2FA) ---
         } else if ("validate_2fa".equals(action)) {
             
             String tokenDigitado = request.getParameter("token");
+            
             String tokenReal = (String) session.getAttribute("2fa_token");
+            String emailTemp = (String) session.getAttribute("temp_user_email");
 
-            if (tokenReal != null && tokenReal.equals(tokenDigitado)) {
-                session.removeAttribute("2fa_token"); 
+            if (tokenReal != null && tokenReal.equals(tokenDigitado) && emailTemp != null) {
                 
-                session.setAttribute("usuario_logado", true); 
+                // LIMPEZA
+                session.removeAttribute("2fa_token");
+                session.removeAttribute("temp_user_email");
+                
+                session.setAttribute("usuarioLogado", emailTemp); 
                 
                 response.setStatus(HttpServletResponse.SC_OK); 
             } else {
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Token inválido ou expirado");
             }
+            
+        } else if ("logout".equals(action)) {
+            session.invalidate(); // Destrói a sessão inteira
+            response.sendRedirect("login.jsp");
         }
     }
 }

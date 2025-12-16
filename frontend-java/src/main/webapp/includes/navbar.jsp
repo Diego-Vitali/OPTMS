@@ -21,7 +21,7 @@
                     <a class="nav-link" href="#">Consultar Previsões</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="#">Gerenciar Usuários</a>
+                    <a class="nav-link" href="./gerenciarUsuarios.jsp">Gerenciar Usuários</a>
                 </li>
             </ul>
         </div>

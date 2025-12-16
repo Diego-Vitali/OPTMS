@@ -8,6 +8,9 @@ public class Usuario {
     private String tipo;
     private String status;
 
+    public Usuario() {
+    }
+
     public Usuario(String nome, String email, String senha, String tipo, String status) {
         this.nome = nome;
         this.email = email;
@@ -16,7 +19,6 @@ public class Usuario {
         this.status = status;
     }
 
-    // Getters e Setters
     public int getId() {
         return id;
     }
