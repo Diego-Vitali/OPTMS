@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: tma-postgres
+    environment:
+      POSTGRES_DB: TMA
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d TMA"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ml-api:
+    build:
+      context: ./machineLearning
+    container_name: tma-ml-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./machineLearning/api/api_artifacts:/app/api_artifacts
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  app:
+    build:
+      context: ./app
+    container_name: tma-app
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/TMA?stringtype=unspecified
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_JPA_DATABASE_PLATFORM: org.hibernate.dialect.PostgreSQLDialect
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      ML_API_BASE_URL: http://ml-api:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ml-api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
