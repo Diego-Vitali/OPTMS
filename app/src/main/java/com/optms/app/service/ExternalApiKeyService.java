@@ -8,6 +8,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.Optional;
 
 @Service
@@ -15,10 +17,12 @@ import java.util.Optional;
 public class ExternalApiKeyService {
 
     private final ExternalApiKeyRepository externalApiKeyRepository;
+    private final SecureRandom secureRandom = new SecureRandom();
 
     @Transactional
     public ExternalApiKey criar(ExternalApiKey externalApiKey, Long companyId) {
         externalApiKey.setCompanyId(companyId);
+        externalApiKey.setApikey(generateUniqueApiKey());
 
         if (externalApiKey.getActive() == null) {
             externalApiKey.setActive(true);
@@ -65,5 +69,17 @@ public class ExternalApiKeyService {
 
         externalApiKey.setActive(true);
         return externalApiKeyRepository.save(externalApiKey);
+    }
+
+    private String generateUniqueApiKey() {
+        byte[] bytes = new byte[16];
+        String apiKey;
+
+        do {
+            secureRandom.nextBytes(bytes);
+            apiKey = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        } while (externalApiKeyRepository.existsByApikey(apiKey));
+
+        return apiKey;
     }
 }

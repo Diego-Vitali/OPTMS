@@ -20,6 +20,9 @@ public class ExternalApiKey {
     @Column(name = "custom_name")
     private String customName;
 
+    @Column(name = "apikey")
+    private String apikey;
+
     @Column(name = "companyId")
     private Long companyId;
 

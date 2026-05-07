@@ -10,6 +10,8 @@ public interface TabelaFreteRepository extends JpaRepository<TabelaFrete, Long> 
 
     Optional<TabelaFrete> findFirstByCompanyIdAndUfOrigemAndAtivaTrueOrderByIdDesc(Long companyId, String ufOrigem);
 
+    List<TabelaFrete> findByCompanyIdAndUfOrigemAndAtivaTrueOrderByIdDesc(Long companyId, String ufOrigem);
+
     List<TabelaFrete> findByCompanyId(Long companyId);
 
     List<TabelaFrete> findByCompanyIdAndAtivaTrue(Long companyId);

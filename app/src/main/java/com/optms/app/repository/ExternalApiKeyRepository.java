@@ -17,4 +17,8 @@ public interface ExternalApiKeyRepository extends JpaRepository<ExternalApiKey, 
     List<ExternalApiKey> findByCompanyIdAndActiveTrue(Long companyId);
 
     Optional<ExternalApiKey> findByIdAndCompanyId(Long id, Long companyId);
+
+    Optional<ExternalApiKey> findByApikeyAndActiveTrue(String apikey);
+
+    boolean existsByApikey(String apikey);
 }

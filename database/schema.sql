@@ -41,6 +41,7 @@ create table IF NOT EXISTS public.companies(
 create table IF NOT EXISTS public.external_apikeys(
 	id BIGINT primary key,
 	custom_name text,
+	apikey VARCHAR(22) NOT NULL,
 	companyId BIGINT,
 	active boolean
 );
@@ -51,7 +52,8 @@ CREATE INDEX IF NOT EXISTS idx_objeto_frete_faixas ON objeto_frete USING GIN (co
 CREATE UNIQUE INDEX IF NOT EXISTS uq_companies_apikey
     ON companies (apikey);
 
--- Garante no máximo uma tabela ativa por company e UF de origem
+CREATE UNIQUE INDEX IF NOT EXISTS uq_external_apikeys_apikey
+    ON external_apikeys (apikey);
+
 DROP INDEX IF EXISTS uq_tabela_frete_uf_origem_ativa;
-CREATE UNIQUE INDEX IF NOT EXISTS uq_tabela_frete_company_uf_origem_ativa
-    ON tabela_frete (company_id, uf_origem) WHERE ativa = TRUE;
+DROP INDEX IF EXISTS uq_tabela_frete_company_uf_origem_ativa;

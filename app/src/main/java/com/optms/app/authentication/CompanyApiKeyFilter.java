@@ -35,6 +35,10 @@ public class CompanyApiKeyFilter extends OncePerRequestFilter {
             return true;
         }
 
+        if ("/api/cotacoes".equals(path) && "POST".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
+
         return "/api/empresas".equals(path) && "POST".equalsIgnoreCase(request.getMethod());
     }
 

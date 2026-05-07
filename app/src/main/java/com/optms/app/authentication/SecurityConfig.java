@@ -14,10 +14,16 @@ public class SecurityConfig {
 
     private final MasterApiKey masterApiKey;
     private final CompanyApiKeyFilter companyApiKeyFilter;
+    private final CotacaoApiKeyFilter cotacaoApiKeyFilter;
 
-    public SecurityConfig(MasterApiKey masterApiKey, CompanyApiKeyFilter companyApiKeyFilter) {
+    public SecurityConfig(
+            MasterApiKey masterApiKey,
+            CompanyApiKeyFilter companyApiKeyFilter,
+            CotacaoApiKeyFilter cotacaoApiKeyFilter
+    ) {
         this.masterApiKey = masterApiKey;
         this.companyApiKeyFilter = companyApiKeyFilter;
+        this.cotacaoApiKeyFilter = cotacaoApiKeyFilter;
     }
 
     @Bean
@@ -29,6 +35,7 @@ public class SecurityConfig {
                 .anyRequest().permitAll()
             )
             .addFilterBefore(masterApiKey, UsernamePasswordAuthenticationFilter.class)
+            .addFilterAfter(cotacaoApiKeyFilter, MasterApiKey.class)
             .addFilterAfter(companyApiKeyFilter, MasterApiKey.class);
 
         return http.build();

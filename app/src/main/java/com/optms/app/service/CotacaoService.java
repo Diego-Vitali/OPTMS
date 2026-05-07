@@ -3,6 +3,7 @@ package com.optms.app.service;
 import com.optms.app.dto.CotacaoRequest;
 import com.optms.app.dto.CotacaoResponse;
 import com.optms.app.dto.CotacaoResponse.ComponenteItem;
+import com.optms.app.dto.CotacaoResponse.TabelaCotacaoItem;
 import com.optms.app.model.ObjetoFrete;
 import com.optms.app.model.TabelaFrete;
 import com.optms.app.repository.ObjetoFreteRepository;
@@ -31,14 +32,30 @@ public class CotacaoService {
     private final ObjetoFreteRepository objetoFreteRepository;
 
     public CotacaoResponse calcular(CotacaoRequest req, Long companyId) {
-        TabelaFrete tabela = tabelaFreteRepository
-                .findFirstByCompanyIdAndUfOrigemAndAtivaTrueOrderByIdDesc(companyId, req.getUfOrigem())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
-                        "Nenhuma tabela de frete ativa para UF origem: " + req.getUfOrigem()));
+        List<TabelaFrete> tabelas = tabelaFreteRepository
+                .findByCompanyIdAndUfOrigemAndAtivaTrueOrderByIdDesc(companyId, req.getUfOrigem());
 
+        if (tabelas.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "Nenhuma tabela de frete ativa para UF origem: " + req.getUfOrigem());
+        }
+
+        List<TabelaCotacaoItem> cotacoes = tabelas.stream()
+                .map(tabela -> calcularPorTabela(req, tabela))
+                .toList();
+
+        return CotacaoResponse.builder()
+                .ufOrigem(req.getUfOrigem())
+                .ufDestino(req.getUfDestino())
+                .peso(req.getPeso())
+                .valorNF(req.getValorNF())
+                .cotacoes(cotacoes)
+                .build();
+    }
+
+    private TabelaCotacaoItem calcularPorTabela(CotacaoRequest req, TabelaFrete tabela) {
         List<ObjetoFrete> objetos = objetoFreteRepository.findByTabelaId(tabela.getId());
 
-        // Frete base — deve existir exatamente um PARTIDA por tabela
         ObjetoFrete partida = objetos.stream()
                 .filter(o -> "PARTIDA".equals(o.getTipoObjeto()))
                 .findFirst()
@@ -47,7 +64,6 @@ public class CotacaoService {
 
         double freteBase = resolverValor(partida, req.getPeso(), req.getValorNF(), 0.0);
 
-        // Componentes adicionais: filtra pelo destino (uf == ufDestino ou uf == null)
         List<ComponenteItem> componentes = objetos.stream()
                 .filter(o -> "COMPONENTE".equals(o.getTipoObjeto()))
                 .filter(o -> o.getUf() == null || o.getUf().equalsIgnoreCase(req.getUfDestino()))
@@ -59,15 +75,13 @@ public class CotacaoService {
 
         double total = freteBase + componentes.stream().mapToDouble(ComponenteItem::valor).sum();
 
-        return CotacaoResponse.builder()
-                .ufOrigem(req.getUfOrigem())
-                .ufDestino(req.getUfDestino())
-                .peso(req.getPeso())
-                .valorNF(req.getValorNF())
-                .freteBase(freteBase)
-                .componentes(componentes)
-                .total(total)
-                .build();
+        return new TabelaCotacaoItem(
+                tabela.getId(),
+                tabela.getNome(),
+                freteBase,
+                componentes,
+                total
+        );
     }
 
     /**

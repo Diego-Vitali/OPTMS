@@ -15,15 +15,17 @@ public class CotacaoResponse {
     private Double peso;
     private Double valorNF;
 
-    /** Valor do frete base calculado pelo objeto PARTIDA. */
-    private Double freteBase;
-
-    /** Encargos adicionais aplicados ao embarque. */
-    private List<ComponenteItem> componentes;
-
-    /** Valor total do frete (freteBase + soma dos componentes). */
-    private Double total;
+    /** Resultado da cotação calculada para cada tabela ativa encontrada. */
+    private List<TabelaCotacaoItem> cotacoes;
 
     /** Um encargo adicional detalhado (nome e valor calculado). */
     public record ComponenteItem(String nome, Double valor) {}
+
+    public record TabelaCotacaoItem(
+            Long tabelaId,
+            String tabelaNome,
+            Double freteBase,
+            List<ComponenteItem> componentes,
+            Double total
+    ) {}
 }
