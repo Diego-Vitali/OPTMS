@@ -2,6 +2,7 @@ services:
   postgres:
     image: postgres:16
     container_name: tma-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_DB: TMA
       POSTGRES_USER: postgres
@@ -10,7 +11,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d TMA"]
       interval: 10s
@@ -20,22 +21,26 @@ services:
   ml-api:
     build:
       context: ./machineLearning
+      dockerfile: Dockerfile
     container_name: tma-ml-api
-    ports:
-      - "8000:8000"
+    restart: unless-stopped
+    expose:
+      - "8000"
     volumes:
       - ./machineLearning/api/api_artifacts:/app/api_artifacts
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 15s
+      interval: 10s
       timeout: 5s
-      retries: 3
-      start_period: 15s
+      retries: 6
+      start_period: 60s
 
   app:
     build:
       context: ./app
+      dockerfile: Dockerfile
     container_name: tma-app
+    restart: unless-stopped
     ports:
       - "8080:8080"
     environment:

@@ -30,9 +30,9 @@ public class CotacaoService {
     private final TabelaFreteRepository tabelaFreteRepository;
     private final ObjetoFreteRepository objetoFreteRepository;
 
-    public CotacaoResponse calcular(CotacaoRequest req) {
+    public CotacaoResponse calcular(CotacaoRequest req, Long companyId) {
         TabelaFrete tabela = tabelaFreteRepository
-                .findFirstByUfOrigemAndAtivaTrueOrderByIdDesc(req.getUfOrigem())
+                .findFirstByCompanyIdAndUfOrigemAndAtivaTrueOrderByIdDesc(companyId, req.getUfOrigem())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Nenhuma tabela de frete ativa para UF origem: " + req.getUfOrigem()));
 

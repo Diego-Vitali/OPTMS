@@ -1,13 +1,14 @@
-FROM eclipse-temurin:25-jdk-noble AS build
+FROM maven:3.9.11-eclipse-temurin-25 AS build
 
 WORKDIR /app
 
-COPY mvnw pom.xml ./
+COPY pom.xml ./
 COPY .mvn .mvn
-RUN chmod +x mvnw && ./mvnw dependency:go-offline -B
+COPY mvnw ./
+RUN chmod +x mvnw && ./mvnw dependency:go-offline -B -ntp
 
 COPY src src
-RUN ./mvnw package -DskipTests -B
+RUN ./mvnw clean package -DskipTests -B -ntp
 
 FROM eclipse-temurin:25-jre-noble
 
@@ -17,4 +18,4 @@ COPY --from=build /app/target/*.jar app.jar
 
 EXPOSE 8080
 
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]

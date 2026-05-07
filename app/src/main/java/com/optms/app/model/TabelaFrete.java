@@ -24,6 +24,9 @@ public class TabelaFrete {
     @Column(name = "usuario_id", nullable = false)
     private Long usuarioId;
 
+    @Column(name = "company_id", nullable = false)
+    private Long companyId;
+
     /** UF do estado de origem que esta tabela atende (ex.: "SP"). */
     @Column(name = "uf_origem", nullable = false, length = 2)
     private String ufOrigem;
