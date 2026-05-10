@@ -6,10 +6,10 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, RandomizedSearchCV, KFold, cross_validate
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 # ── Paths ──────────────────────────────────────────────────────────────────
@@ -129,9 +129,10 @@ async def retrain(req: RetrainRequest):
         iqr = q3 - q1
         df = df[(df["transit time"] >= q1 - 1.5 * iqr) & (df["transit time"] <= q3 + 1.5 * iqr)]
 
+        # --- MUDANÇA 1: Sem train_test_split ---
+        # Usamos 100% dos dados (X e y)
         X = df.drop(columns=["transit time"])
         y = df["transit time"]
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
         new_preprocessor = ColumnTransformer(
             transformers=[
@@ -140,16 +141,52 @@ async def retrain(req: RetrainRequest):
             ],
             remainder="drop",
         )
-        X_train_proc = new_preprocessor.fit_transform(X_train)
-        X_test_proc = new_preprocessor.transform(X_test)
+        
+        # Processamos a base inteira
+        X_proc = new_preprocessor.fit_transform(X)
 
-        new_model = LinearRegression()
-        new_model.fit(X_train_proc, y_train)
+        # 1. Otimização de Hiperparâmetros
+        rf_base = RandomForestRegressor(random_state=42)
+        param_dist = {
+            'n_estimators': [50, 100, 200],
+            'max_depth': [None, 10, 20],
+            'min_samples_split': [2, 5],
+            'min_samples_leaf': [1, 2]
+        }
 
-        y_pred = new_model.predict(X_test_proc)
-        mae = float(mean_absolute_error(y_test, y_pred))
-        rmse = float(np.sqrt(mean_squared_error(y_test, y_pred)))
-        r2 = float(r2_score(y_test, y_pred))
+        random_search = RandomizedSearchCV(
+            estimator=rf_base,
+            param_distributions=param_dist,
+            n_iter=10, 
+            cv=3, # CV interno apenas para escolher a melhor configuração
+            scoring='neg_mean_absolute_error',
+            random_state=42,
+            n_jobs=-1 
+        )
+        
+        random_search.fit(X_proc, y)
+        new_model = random_search.best_estimator_
+
+        # --- MUDANÇA 2: Avaliação Robusta com K-Fold (K=5) ---
+        kf = KFold(n_splits=5, shuffle=True, random_state=42)
+        
+        # O cross_validate tira as métricas girando pelos 5 pedaços
+        scoring_metrics = {
+            'mae': 'neg_mean_absolute_error',
+            'rmse': 'neg_root_mean_squared_error',
+            'r2': 'r2'
+        }
+        cv_results = cross_validate(new_model, X_proc, y, cv=kf, scoring=scoring_metrics)
+
+        # Tiramos a média dos 5 testes para ter a métrica final e confiável
+        mae = float(-cv_results['test_mae'].mean())
+        rmse = float(-cv_results['test_rmse'].mean())
+        r2 = float(cv_results['test_r2'].mean())
+
+        # --- MUDANÇA 3: Treino Final Mestre ---
+        # Agora que já avaliamos, treinamos o modelo vencedor usando 100% dos dados 
+        # para que ele não perca nenhuma informação antes de ir para produção.
+        new_model.fit(X_proc, y)
 
         # Salvar novos artefatos
         os.makedirs(ARTIFACTS_DIR, exist_ok=True)
@@ -164,14 +201,13 @@ async def retrain(req: RetrainRequest):
         return {
             "status": "ok",
             "n_registros": len(df),
-            "mae": round(mae, 3),
-            "rmse": round(rmse, 3),
-            "r2": round(r2, 3),
+            "mae_kfold": round(mae, 3),
+            "rmse_kfold": round(rmse, 3),
+            "r2_kfold": round(r2, 3),
         }
 
     except Exception as e:
         return {"error": str(e)}
-
 
 if __name__ == "__main__":
     import uvicorn

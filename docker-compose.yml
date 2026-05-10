@@ -24,8 +24,8 @@ services:
       dockerfile: Dockerfile
     container_name: tma-ml-api
     restart: unless-stopped
-    expose:
-      - "8001"
+    ports:                 # <-- MUDADO DE 'expose' PARA 'ports'
+      - "8001:8001"
     volumes:
       - ./machineLearning/api/api_artifacts:/app/api_artifacts
     healthcheck:
