@@ -11,13 +11,16 @@ from main import (
     build_hyperparameter_optimizer,
     build_cross_validator,
     engineer_features,
+    FreightRetrainRecord,
     save_artifacts,                # <-- NOVO
     NUM_COLS, 
     CAT_COLS
 )
+from pydantic import ValidationError
 from sklearn.model_selection import RandomizedSearchCV # <-- NOVO
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import KFold
+
 
 # ── 1. Testes de Limpeza e Validação de Dados ──────────────────────────────
 def test_validate_and_clean_data_sucesso():
@@ -152,3 +155,63 @@ def test_save_artifacts_cria_arquivos():
         assert "Especialista_SP.pkl" in caminho_m
 
 
+# ── 7. Testes de Qualidade de Dados (Schemas Pydantic) ────────────────────
+
+@pytest.fixture
+def base_valida():
+    """Retorna um dicionário perfeito para usarmos como base nos testes."""
+    return {
+        "Peso total bruto": 150.0,
+        "Metro cúbico": 1.2,
+        "Valor NF": 2500.00,
+        "Volume NF": 5,
+        "Tipo de frete NF": "CIF",
+        "Via de transporte": "Rodoviário",
+        "UF emitente NF": "SP",
+        "UF destinatário NF": "RJ",
+        "transit time": 2
+    }
+
+def test_schema_dados_perfeitos(base_valida):
+    """Garante que dados corretos são processados e os aliases funcionam."""
+    registro = FreightRetrainRecord(**base_valida)
+    
+    # Verifica se o alias traduziu o espaço para o underline perfeitamente
+    assert registro.Peso_total_bruto == 150.0
+    assert registro.transit_time == 2
+
+@pytest.mark.parametrize("campo_sujo, valor_sujo, erro_esperado", [
+    # --- Regras Matemáticas ---
+    ("Peso total bruto", 0, "greater_than"),         # Peso zero
+    ("Peso total bruto", -10.5, "greater_than"),     # Peso negativo
+    ("Metro cúbico", -1.0, "greater_than"),          # Volume negativo
+    ("Valor NF", -0.01, "greater_than_equal"),       # Valor NF negativo (zero é permitido)
+    ("Volume NF", 0, "greater_than"),                # Caixas zeradas
+    ("transit time", 0, "greater_than"),             # Viagem instantânea/zerada
+    
+    # --- Regras de Vocabulário (Literal) ---
+    ("Tipo de frete NF", "PAGO", "literal_error"),       # Frete inexistente
+    ("Tipo de frete NF", "cif", "literal_error"),        # Case sensitive (minúsculo)
+    ("Via de transporte", "Bicicleta", "literal_error"), # Via inexistente
+    ("UF emitente NF", "XX", "literal_error"),           # Estado falso
+    ("UF destinatário NF", "sp", "literal_error"),       # Estado minúsculo
+    
+    # --- Regras de Tipagem ---
+    ("Volume NF", "dez", "int_parsing"),             # String onde deveria ser inteiro
+    ("transit time", "dois", "int_parsing")          # String onde deveria ser inteiro
+])
+def test_schema_barreiras_de_qualidade(base_valida, campo_sujo, valor_sujo, erro_esperado):
+    """Garante que o Pydantic explode (ValidationError) ao violar regras de negócio."""
+    
+    # Sujamos propositalmente um único campo do nosso payload perfeito
+    base_valida[campo_sujo] = valor_sujo
+    
+    # O bloco 'with pytest.raises' garante que o teste SÓ PASSA se ocorrer um erro!
+    with pytest.raises(ValidationError) as exc_info:
+        FreightRetrainRecord(**base_valida)
+    
+    # Extraímos a lista de erros do Pydantic
+    erros = exc_info.value.errors()
+    
+    # Verificamos se o erro gerado foi exatamente o tipo de erro matemático/tipagem que queríamos
+    assert erros[0]["type"] == erro_esperado
