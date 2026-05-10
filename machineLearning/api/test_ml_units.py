@@ -10,6 +10,7 @@ from main import (
     build_base_model,
     build_hyperparameter_optimizer,
     build_cross_validator,
+    engineer_features,
     save_artifacts,                # <-- NOVO
     NUM_COLS, 
     CAT_COLS
@@ -20,23 +21,21 @@ from sklearn.model_selection import KFold
 
 # ── 1. Testes de Limpeza e Validação de Dados ──────────────────────────────
 def test_validate_and_clean_data_sucesso():
-    """Garante que nulos são removidos e colunas extras são ignoradas."""
-    # Criamos um DataFrame simulado com um valor nulo (NaN) e uma coluna inútil
+    """Garante que a função roda silenciosamente (sem erros) se as colunas estiverem corretas, ignorando colunas extras."""
+    
+    # DataFrame com as colunas certas e uma coluna inútil
     df_bruto = pd.DataFrame({
-        "Peso total bruto": [100.0, np.nan, 200.0],
-        "Metro cúbico": [1.0, 1.5, 2.0],
-        "Coluna_Inutil": ["A", "B", "C"],
-        "transit time": [1, 2, 3]
+        "Peso total bruto": [100.0, 200.0],
+        "Metro cúbico": [1.0, 2.0],
+        "Coluna_Inutil": ["A", "B"],
+        "transit time": [1, 3]
     })
     
     colunas_obrigatorias = ["Peso total bruto", "Metro cúbico", "transit time"]
     
-    df_limpo = validate_and_clean_data(df_bruto, colunas_obrigatorias)
-    
-    # Verificações (Asserts)
-    assert len(df_limpo) == 2 # A linha 2 (com NaN) deve sumir
-    assert "Coluna_Inutil" not in df_limpo.columns # A coluna inútil deve sumir
-    assert list(df_limpo.columns) == colunas_obrigatorias
+    # Em Pytest, se a função rodar até o final sem levantar exceção, o teste PASSA automaticamente.
+    # Não precisamos de 'assert' aqui, o próprio fato de não explodir já é o sucesso!
+    validate_and_clean_data(df_bruto, colunas_obrigatorias)
 
 def test_validate_and_clean_data_coluna_faltando():
     """Garante que o sistema grita (levanta exceção) se faltar coluna."""
@@ -69,21 +68,35 @@ def test_remove_outliers_iqr():
 
 # ── 3. Testes do Pré-processador (StandardScaler e OneHotEncoder) ──────────
 def test_build_preprocessor_transformacao():
-    """Garante que o preprocessor lida com números e textos corretamente."""
-    preprocessor = build_preprocessor(["peso"], ["uf"])
+    """Garante que o preprocessor lida com as novas listas de colunas."""
+    preprocessor = build_preprocessor(["Densidade"], ["Rota"])
     
     df_treino = pd.DataFrame({
-        "peso": [10.0, 100.0, 1000.0],
-        "uf": ["SP", "RJ", "SP"]
+        "Densidade": [50.0, 150.0, 30.0],
+        "Rota": ["SP-RJ", "MG-BA", "SP-RJ"]
     })
     
-    # Treina e transforma os dados
     resultado = preprocessor.fit_transform(df_treino)
-    
-    # A matriz resultante não pode ter textos, apenas números (floats)
     assert resultado.dtype == np.float64
-    # O OneHotEncoder deve ter criado 2 colunas para UF (SP e RJ) + 1 de peso = 3 colunas
     assert resultado.shape[1] == 3
+
+def test_engineer_features():
+    """Garante que as novas colunas matemáticas são criadas corretamente."""
+    df_raw = pd.DataFrame({
+        "Peso total bruto": [100.0],
+        "Metro cúbico": [2.0],
+        "Valor NF": [500.0],
+        "UF emitente NF": ["SP"],
+        "UF destinatário NF": ["RJ"]
+    })
+    
+    df_fe = engineer_features(df_raw)
+    
+    # Verifica a matemática
+    assert "Densidade" in df_fe.columns
+    assert "Rota" in df_fe.columns
+    assert df_fe["Rota"].iloc[0] == "SP-RJ"
+    assert round(df_fe["Densidade"].iloc[0], 2) == 49.98 # 100 / (2 + 0.001)
 
 # ── 5. Testes de Instanciação Desacoplada (AutoML Ready) ───────────────────
 

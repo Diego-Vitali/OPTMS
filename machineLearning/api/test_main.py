@@ -80,7 +80,7 @@ def test_retrain_dados_insuficientes():
     
     # Deve retornar a chave "error" avisando da regra de negócio
     assert "error" in data
-    assert "mínimo 10" in data["error"]
+    assert "Dados insuficientes" in data["error"]
 
 def test_retrain_colunas_faltando():
     """Garante que o sistema recusa treinar se faltar alguma coluna obrigatória."""
@@ -92,7 +92,7 @@ def test_retrain_colunas_faltando():
                 "transit time": 2
                 # Faltam as outras colunas
             }
-        ] * 15 # Multiplica por 15 para passar na regra dos 10 registros
+        ] * 30 # Multiplica por 15 para passar na regra dos 10 registros
     }
     
     response = client.post("/retrain/", json=payload_incompleto)

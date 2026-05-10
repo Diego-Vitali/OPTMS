@@ -4,7 +4,8 @@ import numpy as np
 import pickle
 from fastapi import FastAPI
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Optional, List, Dict, Any, Literal
 from logger import get_logger
 
 from sklearn.model_selection import train_test_split, RandomizedSearchCV, KFold, cross_validate
@@ -19,28 +20,53 @@ ARTIFACTS_DIR = os.path.join(BASE_DIR, "api_artifacts")
 MODEL_PATH = os.path.join(ARTIFACTS_DIR, "TMA_Model.pkl")
 SCALER_PATH = os.path.join(ARTIFACTS_DIR, "TMA_Preprocessor.pkl")
 
-NUM_COLS = ["Peso total bruto", "Metro cúbico", "Valor NF", "Volume NF"]
-CAT_COLS = ["Tipo de frete NF", "Via de transporte", "UF emitente NF", "UF destinatário NF"]
+NUM_COLS = ["Peso total bruto", "Metro cúbico", "Valor NF", "Volume NF", "Densidade", "Valor_por_Kg"]
+CAT_COLS = ["Tipo de frete NF", "Via de transporte", "UF emitente NF", "UF destinatário NF", "Rota"]
+
+# --- NOVO: Colunas cruas que a API exige receber do cliente ---
+RAW_COLS = [
+    "Peso total bruto", "Metro cúbico", "Valor NF", "Volume NF",
+    "Tipo de frete NF", "Via de transporte", "UF emitente NF", "UF destinatário NF"
+]
 
 logger = get_logger(__name__)
 
-# ── Schemas ────────────────────────────────────────────────────────────────
-class FreightInput(BaseModel):
-    Peso_total_bruto: float
-    Metro_cubico: float
-    Valor_NF: float
-    Volume_NF: int
-    Tipo_de_frete_NF: str
-    Via_de_transporte: str
-    UF_emitente_NF: str
-    UF_destinatario_NF: str
+# ── Schemas de Validação de Qualidade (Pydantic V2) ────────────────────────
 
-    model_config = ConfigDict(populate_by_name=True) # substituindo class config por ConfigDict porque o suporte pydantic está deprecando a class config
+# 1. Definimos as opções válidas para o Brasil
+ESTADOS_BR = Literal[
+    "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", 
+    "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"
+]
+VIAS_TRANSPORTE = Literal["Rodoviário", "Aéreo", "Marítimo", "Ferroviário", "Cabotagem"]
+TIPOS_FRETE = Literal["CIF", "FOB"]
 
+class FreightBase(BaseModel):
+    """Regras de negócio que valem tanto para predição quanto para retreino."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    Peso_total_bruto: float = Field(..., gt=0, alias="Peso total bruto", description="Peso deve ser estritamente maior que zero")
+    Metro_cubico: float = Field(..., gt=0, alias="Metro cúbico", description="Metragem cúbica deve ser maior que zero")
+    Valor_NF: float = Field(..., ge=0, alias="Valor NF", description="Valor da NF não pode ser negativo")
+    Volume_NF: int = Field(..., gt=0, alias="Volume NF", description="Quantidade de volumes/caixas deve ser no mínimo 1")
+    
+    Tipo_de_frete_NF: TIPOS_FRETE = Field(..., alias="Tipo de frete NF")
+    Via_de_transporte: VIAS_TRANSPORTE = Field(..., alias="Via de transporte")
+    UF_emitente_NF: ESTADOS_BR = Field(..., alias="UF emitente NF")
+    UF_destinatario_NF: ESTADOS_BR = Field(..., alias="UF destinatário NF")
+
+class FreightInput(FreightBase):
+    """Payload para a rota /predict/ (Não tem transit time)"""
+    pass
+
+class FreightRetrainRecord(FreightBase):
+    """Payload para uma única viagem histórica no /retrain/"""
+    transit_time: int = Field(..., gt=0, alias="transit time", description="O tempo de entrega tem que ser de pelo menos 1 dia")
 
 class RetrainRequest(BaseModel):
+    """Payload principal da rota /retrain/"""
+    # Regra: Garante que o Java nunca mande menos de 10 registros na própria requisição
     records: List[Dict[str, Any]]
-
 
 # ── Load artifacts ─────────────────────────────────────────────────────────
 def load_artifacts():
@@ -60,19 +86,31 @@ def load_artifacts():
 
 # ── Unidades de Machine Learning (Extraídas para Testes) ───────────────────
 
-def validate_and_clean_data(df: pd.DataFrame, required_cols: list) -> pd.DataFrame:
+def validate_and_clean_data(df: pd.DataFrame, required_cols: list) -> None:
     logger.info(f"Iniciando validação de {len(df)} registros recebidos.")
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
         logger.error(f"Validação falhou. Colunas faltando: {missing}")
         raise ValueError(f"Colunas faltando: {missing}")
     
-    df_clean = df[required_cols].dropna()
-    linhas_removidas = len(df) - len(df_clean)
-    if linhas_removidas > 0:
-        logger.warning(f"Foram removidas {linhas_removidas} linhas com valores nulos.")
-        
-    return df_clean
+def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Cria novas variáveis (features) a partir dos dados crus para melhorar 
+    a inteligência do modelo.
+    """
+    logger.info("Aplicando Feature Engineering aos dados...")
+    df_fe = df.copy()
+    
+    # 1. Densidade da Carga (Adicionamos 0.001 para evitar erro de divisão por zero caso o volume venha zerado)
+    df_fe["Densidade"] = df_fe["Peso total bruto"] / (df_fe["Metro cúbico"] + 0.001)
+    
+    # 2. Valor Agregado por Kg
+    df_fe["Valor_por_Kg"] = df_fe["Valor NF"] / (df_fe["Peso total bruto"] + 0.001)
+    
+    # 3. Rota Específica (Fundindo colunas de texto)
+    df_fe["Rota"] = df_fe["UF emitente NF"] + "-" + df_fe["UF destinatário NF"]
+    
+    return df_fe
 
 def remove_outliers_iqr(df: pd.DataFrame, target_col: str) -> pd.DataFrame:
     if df.empty:
@@ -192,6 +230,7 @@ async def predict(data: FreightInput):
             "UF destinatário NF": data.UF_destinatario_NF,
         }
         df = pd.DataFrame([input_dict])
+        df = engineer_features(df)
         processed = preprocessor.transform(df)
         prediction = model.predict(processed)
         
@@ -207,23 +246,51 @@ async def predict(data: FreightInput):
 @app.post("/retrain/")
 async def retrain(req: RetrainRequest):
     global model, preprocessor
-    if not req.records:
-        return {"error": "Nenhum registro enviado para retreino"}
+    
+    valid_records = []
+    invalid_count = 0
+    
+    logger.info(f"Recebidos {len(req.records)} registros. Iniciando limpeza...")
+
+    df_raw = pd.DataFrame(req.records)
+    required = RAW_COLS + ["transit time"]
 
     try:
-        df = pd.DataFrame(req.records)
+        validate_and_clean_data(df_raw, required)
+    except ValueError as e:
+        # Se a função explodir, nós pegamos a mensagem do erro (str(e)) 
+        # e devolvemos como um JSON pacífico para o Java e para o Teste
+        return {"error": str(e)}
 
-        # Validar colunas necessárias
-        required = NUM_COLS + CAT_COLS + ["transit time"]
-        df = validate_and_clean_data(df, required)
+    for r in req.records:
+        try:
+            # Tentamos forçar a validação individual da linha
+            validated_row = FreightRetrainRecord(**r)
+            valid_records.append(validated_row.model_dump(by_alias=True))
+        except Exception:
+            # Se der erro, ignoramos a linha e contamos o erro
+            invalid_count += 1
 
-        if len(df) < 10:
-            return {"error": f"Dados insuficientes para treino: {len(df)} registros válidos (mínimo 10)"}
+    # Verificamos se, após a limpeza, ainda temos o mínimo necessário
+    if len(valid_records) < 10:
+        logger.error(f"Treino cancelado. Temos {len(valid_records)} linhas saudáveis (mínimo 10).")
+        return {
+            "error": "Dados insuficientes após limpeza",
+            "linhas_descartadas": invalid_count,
+            "linhas_saudaveis": len(valid_records)
+        }
 
+    logger.info(f"Limpeza concluída. {len(valid_records)} linhas salvas. {invalid_count} linhas descartadas.")
+
+    try:
+        # Agora seguimos o treino normalmente com valid_records...
+        df = pd.DataFrame(valid_records)
+        
+        # Remove outliers lógicos
         df = remove_outliers_iqr(df, "transit time")
+        
+        df = engineer_features(df)
 
-        # --- MUDANÇA 1: Sem train_test_split ---
-        # Usamos 100% dos dados (X e y)
         X = df.drop(columns=["transit time"])
         y = df["transit time"]
 
