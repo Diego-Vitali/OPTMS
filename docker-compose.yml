@@ -25,11 +25,11 @@ services:
     container_name: tma-ml-api
     restart: unless-stopped
     expose:
-      - "8000"
+      - "8001"
     volumes:
       - ./machineLearning/api/api_artifacts:/app/api_artifacts
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 10s
       timeout: 5s
       retries: 6
@@ -49,7 +49,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: postgres
       SPRING_JPA_DATABASE_PLATFORM: org.hibernate.dialect.PostgreSQLDialect
       SPRING_JPA_HIBERNATE_DDL_AUTO: update
-      ML_API_BASE_URL: http://ml-api:8000
+      ML_API_BASE_URL: http://ml-api:8001
     depends_on:
       postgres:
         condition: service_healthy
