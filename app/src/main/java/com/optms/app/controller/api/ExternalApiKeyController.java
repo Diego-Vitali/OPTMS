@@ -2,10 +2,11 @@ package com.optms.app.controller.api;
 
 import com.optms.app.authentication.CompanyApiKeyFilter;
 import com.optms.app.authentication.MasterApiKey;
+import com.optms.app.dto.ExternalApiKeyRequest;
 import com.optms.app.model.ExternalApiKey;
-import com.optms.app.repository.ExternalApiKeyRepository;
 import com.optms.app.service.ExternalApiKeyService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -26,30 +27,40 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class ExternalApiKeyController {
 
-    private final ExternalApiKeyRepository externalApiKeyRepository;
     private final ExternalApiKeyService externalApiKeyService;
 
     @PostMapping
-    public ResponseEntity<ExternalApiKey> criar(@RequestBody ExternalApiKey externalApiKey, HttpServletRequest request) {
-        Long companyId = (Long) request.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
-        externalApiKey = externalApiKeyService.criar(externalApiKey, companyId);
+    public ResponseEntity<ExternalApiKey> criar(
+            @Valid @RequestBody ExternalApiKeyRequest externalApiKeyRequest,
+            HttpServletRequest request
+    ) {
+        Long companyId;
+
+        if (Boolean.TRUE.equals(request.getAttribute(MasterApiKey.MASTER_ACCESS_ATTRIBUTE))) {
+            if (externalApiKeyRequest.getCompanyId() == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "companyId é obrigatório para o admin");
+            }
+            companyId = externalApiKeyRequest.getCompanyId();
+        } else {
+            companyId = (Long) request.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
+        }
+
+        ExternalApiKey externalApiKey = externalApiKeyService.criar(externalApiKeyRequest.getCustomName(), companyId);
         return ResponseEntity.status(HttpStatus.CREATED).body(externalApiKey);
     }
 
     @GetMapping
-    public ResponseEntity<?> listar(HttpServletRequest request, @RequestParam(required = false) String nome) {
+    public ResponseEntity<?> listar(
+            HttpServletRequest request,
+            @RequestParam(required = false) String nome,
+            @RequestParam(required = false) Long companyId
+    ) {
         if (Boolean.TRUE.equals(request.getAttribute(MasterApiKey.MASTER_ACCESS_ATTRIBUTE))) {
-            if (nome != null && !nome.isBlank()) {
-                return ResponseEntity.ok(externalApiKeyRepository.findByCustomNameContainingIgnoreCase(nome));
-            }
-            return ResponseEntity.ok(externalApiKeyRepository.findAll());
+            return ResponseEntity.ok(externalApiKeyService.listarComoAdmin(companyId, nome));
         }
 
-        Long companyId = (Long) request.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
-        if (nome != null && !nome.isBlank()) {
-            return ResponseEntity.ok(externalApiKeyRepository.findByCompanyIdAndCustomNameContainingIgnoreCase(companyId, nome));
-        }
-        return ResponseEntity.ok(externalApiKeyRepository.findByCompanyId(companyId));
+        Long authenticatedCompanyId = (Long) request.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
+        return ResponseEntity.ok(externalApiKeyService.listar(authenticatedCompanyId, nome));
     }
 
     @GetMapping("/{id}")
@@ -57,7 +68,7 @@ public class ExternalApiKeyController {
         Optional<ExternalApiKey> externalApiKey;
 
         if (Boolean.TRUE.equals(request.getAttribute(MasterApiKey.MASTER_ACCESS_ATTRIBUTE))) {
-            externalApiKey = externalApiKeyRepository.findById(id);
+            externalApiKey = externalApiKeyService.obterPorIdECompany(id, null);
         } else {
             Long companyId = (Long) request.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
             externalApiKey = externalApiKeyService.obterPorIdECompany(id, companyId);

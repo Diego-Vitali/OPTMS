@@ -56,5 +56,18 @@ services:
       ml-api:
         condition: service_healthy
 
+  frontend-php:
+    build:
+      context: ./frontend-php
+      dockerfile: Dockerfile
+    container_name: tma-frontend-php
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    environment:
+      SPRING_API_BASE_URL: http://app:8080
+    depends_on:
+      - app
+
 volumes:
   postgres_data:

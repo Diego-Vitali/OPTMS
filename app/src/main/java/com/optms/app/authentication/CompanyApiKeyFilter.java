@@ -31,6 +31,14 @@ public class CompanyApiKeyFilter extends OncePerRequestFilter {
             return true;
         }
 
+        if (path.startsWith("/api/auth/")) {
+            return true;
+        }
+
+        if (path.startsWith("/api/admin/")) {
+            return true;
+        }
+
         if (Boolean.TRUE.equals(request.getAttribute(MasterApiKey.MASTER_ACCESS_ATTRIBUTE))) {
             return true;
         }

@@ -9,4 +9,6 @@ public interface ObjetoFreteRepository extends JpaRepository<ObjetoFrete, Long> 
 
     /** Retorna todos os componentes vinculados a uma tabela de frete. */
     List<ObjetoFrete> findByTabelaId(Long tabelaId);
+
+    void deleteByTabelaId(Long tabelaId);
 }

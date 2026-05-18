@@ -1,0 +1,57 @@
+package com.optms.app.service;
+
+import com.optms.app.dto.MlPredictRequest;
+import com.optms.app.dto.MlPredictResponse;
+import java.util.Map;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.server.ResponseStatusException;
+
+@Service
+public class MlPredictionService {
+
+    private final RestTemplate restTemplate;
+    private final String mlApiBaseUrl;
+
+    public MlPredictionService(@Value("${ml.api.base-url}") String mlApiBaseUrl) {
+        this.mlApiBaseUrl = mlApiBaseUrl;
+        this.restTemplate = new RestTemplate();
+    }
+
+    public MlPredictResponse predict(MlPredictRequest request) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<Map<String, Object>> requestEntity = new HttpEntity<>(Map.of(
+                "Peso total bruto", request.getPesoTotalBruto(),
+                "Metro cúbico", request.getMetroCubico(),
+                "Valor NF", request.getValorNF(),
+                "Volume NF", request.getVolumeNF(),
+                "Tipo de frete NF", request.getTipoFreteNF(),
+                "Via de transporte", request.getViaTransporte(),
+                "UF emitente NF", request.getUfEmitenteNF(),
+                "UF destinatário NF", request.getUfDestinatarioNF()
+        ), headers);
+
+        try {
+            MlPredictResponse response = restTemplate.postForObject(
+                    mlApiBaseUrl + "/predict/",
+                    requestEntity,
+                    MlPredictResponse.class
+            );
+
+            if (response == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "O serviço de ML retornou uma resposta vazia");
+            }
+
+            return response;
+        } catch (RestClientException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Falha ao comunicar com o serviço de ML", exception);
+        }
+    }
+}

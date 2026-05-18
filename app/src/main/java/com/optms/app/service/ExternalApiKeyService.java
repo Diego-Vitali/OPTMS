@@ -2,6 +2,7 @@ package com.optms.app.service;
 
 import com.optms.app.model.ExternalApiKey;
 import com.optms.app.repository.ExternalApiKeyRepository;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -31,7 +32,38 @@ public class ExternalApiKeyService {
         return externalApiKeyRepository.save(externalApiKey);
     }
 
+    @Transactional
+    public ExternalApiKey criar(String customName, Long companyId) {
+        if (customName == null || customName.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "customName é obrigatório");
+        }
+
+        ExternalApiKey externalApiKey = new ExternalApiKey();
+        externalApiKey.setCustomName(customName.trim());
+        return criar(externalApiKey, companyId);
+    }
+
+    public List<ExternalApiKey> listar(Long companyId, String nome) {
+        if (nome != null && !nome.isBlank()) {
+            return externalApiKeyRepository.findByCompanyIdAndCustomNameContainingIgnoreCase(companyId, nome);
+        }
+        return externalApiKeyRepository.findByCompanyId(companyId);
+    }
+
+    public List<ExternalApiKey> listarComoAdmin(Long companyId, String nome) {
+        if (companyId != null) {
+            return listar(companyId, nome);
+        }
+        if (nome != null && !nome.isBlank()) {
+            return externalApiKeyRepository.findByCustomNameContainingIgnoreCase(nome);
+        }
+        return externalApiKeyRepository.findAll();
+    }
+
     public Optional<ExternalApiKey> obterPorIdECompany(Long id, Long companyId) {
+        if (companyId == null) {
+            return externalApiKeyRepository.findById(id);
+        }
         return externalApiKeyRepository.findByIdAndCompanyId(id, companyId);
     }
 
@@ -69,6 +101,20 @@ public class ExternalApiKeyService {
 
         externalApiKey.setActive(true);
         return externalApiKeyRepository.save(externalApiKey);
+    }
+
+    @Transactional
+    public void excluirPorId(Long id) {
+        ExternalApiKey externalApiKey = externalApiKeyRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "External API key não encontrada"));
+        externalApiKeyRepository.delete(externalApiKey);
+    }
+
+    @Transactional
+    public void excluirPorIdECompany(Long id, Long companyId) {
+        ExternalApiKey externalApiKey = externalApiKeyRepository.findByIdAndCompanyId(id, companyId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "External API key não encontrada"));
+        externalApiKeyRepository.delete(externalApiKey);
     }
 
     private String generateUniqueApiKey() {

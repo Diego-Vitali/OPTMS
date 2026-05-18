@@ -2,22 +2,27 @@ package com.optms.app.controller.api;
 
 import com.optms.app.authentication.CompanyApiKeyFilter;
 import com.optms.app.dto.TabelaFreteRequest;
+import com.optms.app.dto.TabelaFreteUploadResponse;
 import com.optms.app.model.TabelaFrete;
 import com.optms.app.service.TabelaFreteService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.optms.app.authentication.MasterApiKey;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/tabelas-frete")
@@ -26,6 +31,12 @@ import com.optms.app.authentication.MasterApiKey;
 public class TabelaFreteController {
 
     private final TabelaFreteService tabelaFreteService;
+
+    @GetMapping
+    public ResponseEntity<List<TabelaFrete>> listar(HttpServletRequest httpRequest) {
+        Long companyId = (Long) httpRequest.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
+        return ResponseEntity.ok(tabelaFreteService.listar(companyId));
+    }
 
     @PostMapping
     @Operation(
@@ -40,6 +51,15 @@ public class TabelaFreteController {
         return ResponseEntity.status(HttpStatus.CREATED).body(saved);
     }
 
+    @PostMapping("/upload-xlsx")
+    public ResponseEntity<TabelaFreteUploadResponse> uploadXlsx(
+            @RequestPart("file") MultipartFile file,
+            HttpServletRequest httpRequest
+    ) {
+        Long companyId = (Long) httpRequest.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
+        return ResponseEntity.status(HttpStatus.CREATED).body(tabelaFreteService.criarPorXlsx(file, companyId));
+    }
+
     @PatchMapping("/{id}/desativar")
     public ResponseEntity<TabelaFrete> desativar(@PathVariable Long id, HttpServletRequest request) {
         TabelaFrete tabela;
@@ -49,6 +69,20 @@ public class TabelaFreteController {
         } else {
             Long companyId = (Long) request.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
             tabela = tabelaFreteService.desativarPorIdECompany(id, companyId);
+        }
+
+        return ResponseEntity.ok(tabela);
+    }
+
+    @PatchMapping("/{id}/ativar")
+    public ResponseEntity<TabelaFrete> ativar(@PathVariable Long id, HttpServletRequest request) {
+        TabelaFrete tabela;
+
+        if (Boolean.TRUE.equals(request.getAttribute(MasterApiKey.MASTER_ACCESS_ATTRIBUTE))) {
+            tabela = tabelaFreteService.ativarPorId(id);
+        } else {
+            Long companyId = (Long) request.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
+            tabela = tabelaFreteService.ativarPorIdECompany(id, companyId);
         }
 
         return ResponseEntity.ok(tabela);

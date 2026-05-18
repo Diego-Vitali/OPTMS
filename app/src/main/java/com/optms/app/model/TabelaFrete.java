@@ -20,10 +20,6 @@ public class TabelaFrete {
     @Column(name = "id")
     private Long id;
 
-    /** ID do usuário que criou esta tabela. Deve ser passado pelo frontend. */
-    @Column(name = "usuario_id", nullable = false)
-    private Long usuarioId;
-
     @Column(name = "company_id", nullable = false)
     private Long companyId;
 

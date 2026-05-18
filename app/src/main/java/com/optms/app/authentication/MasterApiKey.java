@@ -23,26 +23,7 @@ public class MasterApiKey extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        String path = request.getRequestURI();
-        String method = request.getMethod();
-
-        boolean isCompanyCreation = "/api/empresas".equals(path) && "POST".equalsIgnoreCase(method);
-        boolean isApiGet = path.startsWith("/api/") && "GET".equalsIgnoreCase(method);
-        boolean isCompanyStatusEndpoint = path.startsWith("/api/empresas/")
-                && "PATCH".equalsIgnoreCase(method)
-                && (path.endsWith("/desativar") || path.endsWith("/ativar"));
-        boolean isUserStatusEndpoint = path.startsWith("/api/usuarios/")
-                && "PATCH".equalsIgnoreCase(method)
-                && (path.endsWith("/desativar") || path.endsWith("/ativar"));
-        boolean isExternalApiKeyStatusEndpoint = path.startsWith("/api/external-apikeys/")
-                && "PATCH".equalsIgnoreCase(method)
-                && (path.endsWith("/desativar") || path.endsWith("/ativar"));
-
-        return !isCompanyCreation
-                && !isApiGet
-                && !isCompanyStatusEndpoint
-                && !isUserStatusEndpoint
-                && !isExternalApiKeyStatusEndpoint;
+        return !request.getRequestURI().startsWith("/api/");
     }
 
     @Override
@@ -50,21 +31,34 @@ public class MasterApiKey extends OncePerRequestFilter {
             throws ServletException, IOException {
 
         String method = request.getMethod();
+        String path = request.getRequestURI();
         String apiKey = request.getHeader(API_KEY_HEADER);
+        boolean isAdminRoute = path.startsWith("/api/admin/");
 
-        if ("POST".equalsIgnoreCase(method)) {
-            if (apiKey == null || !apiKey.equals(authToken)) {
-                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                response.getWriter().write("API Key inválida");
-                return;
-            }
+        boolean hasMasterKey = apiKey != null && apiKey.equals(authToken);
+        boolean isCompanyCreation = "/api/empresas".equals(path) && "POST".equalsIgnoreCase(method);
+        boolean isCompanyUpdate = path.startsWith("/api/empresas/")
+                && ("PUT".equalsIgnoreCase(method) || "DELETE".equalsIgnoreCase(method));
+        boolean isCompanyStatusEndpoint = path.startsWith("/api/empresas/")
+                && "PATCH".equalsIgnoreCase(method)
+                && (path.endsWith("/desativar") || path.endsWith("/ativar"));
+        boolean isExternalApiKeyStatusEndpoint = path.startsWith("/api/external-apikeys/")
+                && "PATCH".equalsIgnoreCase(method)
+                && (path.endsWith("/desativar") || path.endsWith("/ativar"));
+        boolean routeRequiresMaster = isAdminRoute
+                || isCompanyCreation
+                || isCompanyUpdate
+                || isCompanyStatusEndpoint
+                || isExternalApiKeyStatusEndpoint;
 
-            filterChain.doFilter(request, response);
-            return;
+        if (hasMasterKey) {
+            request.setAttribute(MASTER_ACCESS_ATTRIBUTE, true);
         }
 
-        if (apiKey != null && apiKey.equals(authToken)) {
-            request.setAttribute(MASTER_ACCESS_ATTRIBUTE, true);
+        if (routeRequiresMaster && !hasMasterKey) {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.getWriter().write("API Key inválida");
+            return;
         }
 
         filterChain.doFilter(request, response);

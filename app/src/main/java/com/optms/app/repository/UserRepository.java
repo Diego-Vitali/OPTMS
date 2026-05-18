@@ -17,4 +17,16 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<User> findByCompanyIdAndActiveTrue(Long companyId);
 
     Optional<User> findByIdAndCompanyId(Long id, Long companyId);
+
+    Optional<User> findByCompanyIdAndEmailIgnoreCaseAndActiveTrue(Long companyId, String email);
+
+    Optional<User> findByIdAndCompanyIdAndActiveTrue(Long id, Long companyId);
+
+    List<User> findByEmailIgnoreCaseAndActiveTrue(String email);
+
+    boolean existsByCompanyIdAndEmailIgnoreCase(Long companyId, String email);
+
+    boolean existsByEmailIgnoreCase(String email);
+
+    boolean existsByEmailIgnoreCaseAndIdNot(String email, Long id);
 }

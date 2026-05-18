@@ -58,6 +58,7 @@ public class CotacaoService {
 
         ObjetoFrete partida = objetos.stream()
                 .filter(o -> "PARTIDA".equals(o.getTipoObjeto()))
+                .filter(o -> o.getUf() == null || o.getUf().equalsIgnoreCase(req.getUfDestino()))
                 .findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(422),
                         "Tabela sem objeto PARTIDA: " + tabela.getNome()));
@@ -101,6 +102,21 @@ public class CotacaoService {
         }
 
         Double valor = obj.getFaixas().buscarValor(entrada);
-        return valor != null ? valor : 0.0;
+        if (valor == null) {
+            return 0.0;
+        }
+
+        if ("PERCENTUAL".equalsIgnoreCase(obj.getTipoCalculo())) {
+            double base = switch (String.valueOf(obj.getBaseCalculo()).toUpperCase()) {
+                case "VLR_NF", "VALOR_NF" -> valorNF;
+                case "PESO" -> peso;
+                default -> obj.isSobreFretePartida() ? freteBase : valorNF;
+            };
+            double calculado = base * (valor / 100.0);
+            Double minimo = obj.getFaixas().getMinimo();
+            return minimo != null ? Math.max(calculado, minimo) : calculado;
+        }
+
+        return valor;
     }
 }
