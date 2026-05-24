@@ -13,14 +13,14 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import RandomizedSearchCV
+from sklearn.ensemble import RandomForestRegressor, IsolationForest
+from sklearn.model_selection import RandomizedSearchCV, train_test_split
+import shap
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARTIFACTS_DIR = os.path.join(BASE_DIR, "api_artifacts")
-MODEL_PATH = os.path.join(ARTIFACTS_DIR, "TMA_Model.pkl")
-SCALER_PATH = os.path.join(ARTIFACTS_DIR, "TMA_Preprocessor.pkl")
+ARTIFACTS_FILE = os.path.join(ARTIFACTS_DIR, "optms_mlops_artifacts.pkl")
 
 NUM_COLS = ["Peso total bruto", "Metro cúbico", "Valor NF", "Volume NF", "Densidade", "Valor_por_Kg"]
 CAT_COLS = ["Tipo de frete NF", "Via de transporte", "UF emitente NF", "UF destinatário NF", "Rota"]
@@ -71,31 +71,70 @@ class RetrainRequest(BaseModel):
     records: List[Dict[str, Any]]
 
 # ---
-
 class LogisticsFeatureEngineer(BaseEstimator, TransformerMixin):
     def __init__(self, apply_fe=True):
-        # Este é o interruptor que o Grid/Random Search vai ligar e desligar
         self.apply_fe = apply_fe
 
     def fit(self, X, y=None):
-        # Transformers customizados precisam do método fit, mas não aprendemos nada aqui
+        # Mudamos o nome da variável para 'original_cols_' para evitar 
+        # a validação estrita e bloqueadora do Scikit-Learn
+        if hasattr(X, "columns"):
+            self.original_cols_ = np.array(X.columns)
+        else:
+            self.original_cols_ = np.array([])
         return self
 
     def transform(self, X):
-        # Sempre trabalhe com uma cópia para não alterar o DataFrame original
         X_out = X.copy()
-        
-        # Se o otimizador decidiu desligar o FE, devolvemos os dados crus
         if not self.apply_fe:
             return X_out
             
-        # Caso contrário, criamos a mágica
         X_out["Densidade"] = X_out["Peso_total_bruto"] / (X_out["Metro_cubico"] + 0.001)
         X_out["Valor_por_Kg"] = X_out["Valor_NF"] / (X_out["Peso_total_bruto"] + 0.001)
         X_out["Rota"] = X_out["UF_emitente_NF"] + "-" + X_out["UF_destinatario_NF"]
-        
         return X_out
-    
+
+    def get_feature_names_out(self, input_features=None):
+        # Ignoramos o input_features que o sklearn tenta empurrar 
+        # e usamos a nossa própria lista salva com segurança
+        base = getattr(self, "original_cols_", np.array([]))
+        
+        if not self.apply_fe:
+            return base
+            
+        novas_features = np.array(["Densidade", "Valor_por_Kg", "Rota"])
+        return np.concatenate([base, novas_features])
+
+class LUDSSplitConformal:
+    """
+    Motor customizado de Predição Conformal (Garantia de SLA).
+    Calcula dinamicamente a margem de erro baseada no histórico de resíduos.
+    """
+    def __init__(self, estimator):
+        self.estimator = estimator
+        self.residuals = None
+
+    def calibrate(self, X_calib, y_calib):
+        # 1. O modelo já está treinado. Fazemos previsões na base de calibração que ele nunca viu.
+        preds = self.estimator.predict(X_calib)
+        
+        # 2. Guardamos o Erro Absoluto de cada previsão (O quanto ele errou em dias)
+        self.residuals = np.abs(y_calib - preds)
+
+    def predict(self, X, alpha=0.10):
+        # 1. Faz a previsão normal
+        preds = self.estimator.predict(X)
+        
+        # 2. Pega o percentil dos erros histórico baseado no alpha exigido
+        # Ex: alpha = 0.10 -> Busca o erro que cobre 90% dos cenários (Percentil 90)
+        q = np.quantile(self.residuals, 1 - alpha)
+        
+        # 3. Cria os intervalos
+        limite_inferior = preds - q
+        limite_superior = preds + q
+        
+        return preds, limite_inferior, limite_superior
+
 def build_full_pipeline():
     """
     Cria a esteira completa: Feature Engineering -> Pré-processamento Dinâmico -> Modelo.
@@ -105,7 +144,6 @@ def build_full_pipeline():
         transformers=[
             # Exclui explicitamente os dois tipos de texto para pegar só os números
             ("num", StandardScaler(), make_column_selector(dtype_exclude=["object", "string"])),
-            
             # Inclui explicitamente os dois tipos de texto
             ("cat", OneHotEncoder(handle_unknown="ignore"), make_column_selector(dtype_include=["object", "string"]))
         ]
@@ -120,7 +158,11 @@ def build_full_pipeline():
     
     return pipeline
 
-def optimize_and_train(X_train, y_train):
+def optimize_and_train(X, y):
+    # 1. Divisão para o MAPIE
+    X_train, X_calib, y_train, y_calib = train_test_split(X, y, test_size=0.2, random_state=42)
+    
+    # 2. Otimização do Pipeline Principal (O Sniper vai PRIMEIRO!)
     pipeline = build_full_pipeline()
     
     param_distributions = {
@@ -130,7 +172,6 @@ def optimize_and_train(X_train, y_train):
         "regressor__min_samples_split": [2, 5, 10]
     }
     
-    # --- NOVO: Calculando múltiplas métricas ao mesmo tempo ---
     scoring_metrics = {
         'mae': 'neg_mean_absolute_error',
         'rmse': 'neg_root_mean_squared_error',
@@ -138,85 +179,92 @@ def optimize_and_train(X_train, y_train):
     }
     
     search = RandomizedSearchCV(
-        pipeline,
-        param_distributions=param_distributions,
-        n_iter=10, 
-        cv=5,      
-        scoring=scoring_metrics,
-        refit='mae', # Avisa o GridSearch: "Use o MAE para escolher o grande campeão"
-        random_state=42,
-        n_jobs=-1  
+        pipeline, param_distributions=param_distributions, n_iter=10, 
+        cv=5, scoring=scoring_metrics, refit='mae', random_state=42, n_jobs=-1  
     )
     
     logger.info("Iniciando busca de hiperparâmetros (Hyperparameter Tuning)...")
     search.fit(X_train, y_train)
+    best_pipeline = search.best_estimator_
     
-    logger.info(f"Melhor configuração: {search.best_params_}")
+    # --- A MÁGICA DA CORREÇÃO ACONTECE AQUI ---
+    # Extraímos a inteligência de tradução de texto para número ANTES de instanciar os outros
+    transformadores = best_pipeline[:-1] 
+
+    # 3. Treinamento do Cão de Guarda (Isolation Forest) COM DADOS TRANSFORMADOS
+    logger.info("Treinando o Cão de Guarda (Isolation Forest)...")
+    X_train_mastigado = transformadores.transform(X_train)
+    cao_de_guarda = IsolationForest(contamination=0.01, random_state=42, n_jobs=-1)
+    cao_de_guarda.fit(X_train_mastigado)
     
-    # --- NOVO: Extraindo as métricas do "Grande Campeão" ---
-    # O RandomizedSearchCV guarda um histórico de todas as iterações. 
-    # Nós pegamos o índice (linha) de qual iteração foi a vencedora:
+# 4. Calibração da Margem de SLA (Nosso motor customizado)
+    logger.info("Calibrando intervalos de confiança (Custom Conformal Prediction)...")
+    
+    # Envelopamos o melhor modelo do AutoML na nossa classe
+    conformal_model = LUDSSplitConformal(estimator=best_pipeline)
+    
+    # Calibramos as margens de erro
+    conformal_model.calibrate(X_calib, y_calib)
+
+    # 5. Inicialização do SHAP (Explicabilidade)
+    logger.info("Instanciando Explicabilidade (SHAP)...")
+    modelo_arvore = best_pipeline.named_steps["regressor"]
+    explainer_shap = shap.TreeExplainer(modelo_arvore)
+    transformadores = best_pipeline[:-1] 
+
+    # 6. Agrupando os artefatos (Substitua 'mapie_model' por 'conformal_model')
+    artefatos = {
+        "cao_de_guarda": cao_de_guarda,
+        "conformal_model": conformal_model, 
+        "explainer_shap": explainer_shap,
+        "transformadores": transformadores
+    }
+
+    # (O restante da função de extrair métricas continua igualzinho...)
     best_idx = search.best_index_
-    
-    # Puxamos as métricas exatas daquela rodada vencedora
-    # (Lembrando de multiplicar por -1 os erros, pois o Sklearn os guarda negativos)
     mae = -search.cv_results_['mean_test_mae'][best_idx]
     rmse = -search.cv_results_['mean_test_rmse'][best_idx]
     r2 = search.cv_results_['mean_test_r2'][best_idx]
     
-    # Montamos um dicionário elegante com os resultados
     metrics = {
         "mae_kfold": round(float(mae), 3),
         "rmse_kfold": round(float(rmse), 3),
         "r2_kfold": round(float(r2), 3),
-        # Bônus legal: Retornar para o Java se a IA decidiu usar suas novas features ou não!
         "usou_feature_engineering": bool(search.best_params_['feature_engineer__apply_fe'])
     }
     
-    # Retornamos o melhor modelo E o dicionário de métricas
-    return search.best_estimator_, metrics
+    return artefatos, metrics
 
-# ── Load artifacts ─────────────────────────────────────────────────────────
-def load_artifacts(dest_dir: str):
-    """Carrega o Pipeline Mestre da memória."""
-    pipeline_path = os.path.join(dest_dir, "pipeline_completo.pkl")
-    if os.path.exists(pipeline_path):
-        return joblib.load(pipeline_path)
+# ── Gerenciamento de Artefatos ─────────────────────────────────────────────
+def save_artifacts(artefatos: dict, filepath: str):
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    joblib.dump(artefatos, filepath)
+    logger.info("Artefatos do MLOps salvos com sucesso.")
+
+def load_artifacts(filepath: str):
+    if os.path.exists(filepath):
+        return joblib.load(filepath)
     return None
 
+mlops_system = load_artifacts(ARTIFACTS_FILE)
 
-# ── Unidades de Machine Learning (Extraídas para Testes) ───────────────────
-
+# ── Funções Auxiliares ─────────────────────────────────────────────────────
 def validate_and_clean_data(df: pd.DataFrame, required_cols: list) -> None:
-    logger.info(f"Iniciando validação de {len(df)} registros recebidos.")
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
-        logger.error(f"Validação falhou. Colunas faltando: {missing}")
         raise ValueError(f"Colunas faltando: {missing}")
 
 def remove_outliers_iqr(df: pd.DataFrame, target_col: str) -> pd.DataFrame:
     if df.empty:
         return df
-    
     q1, q3 = np.percentile(df[target_col], [25, 75])
     iqr = q3 - q1
     lower_bound = q1 - 1.5 * iqr
     upper_bound = q3 + 1.5 * iqr
     
     df_filtered = df[(df[target_col] >= lower_bound) & (df[target_col] <= upper_bound)]
-    outliers_removidos = len(df) - len(df_filtered)
-    
-    logger.info(f"Remoção de Outliers (IQR): {outliers_removidos} registros anômalos removidos. Limites: [{lower_bound:.2f} a {upper_bound:.2f}]")
-    
+    logger.info(f"Remoção de Outliers (IQR): {len(df) - len(df_filtered)} registros removidos.")
     return df_filtered
-
-def save_artifacts(pipeline, dest_dir: str):
-    """Salva o Pipeline Mestre em disco."""
-    os.makedirs(dest_dir, exist_ok=True)
-    joblib.dump(pipeline, os.path.join(dest_dir, "pipeline_completo.pkl"))
-    logger.info("Pipeline completo salvo no disco.")
-
-model_pipeline = load_artifacts(ARTIFACTS_DIR)
 
 app = FastAPI(
     title="TMS ML API",
@@ -241,106 +289,115 @@ async def health():
 
 @app.post("/predict/")
 async def predict(data: FreightInput):
-    global model, preprocessor
-    if model_pipeline is None:
-        logger.error("Tentativa de predição negada: Modelo não está carregado na memória.")
-        return {"error": "Modelo não carregado. Verifique os artefatos em api_artifacts/"}
+    global mlops_system
+    if mlops_system is None:
+        return {"error": "Modelo não carregado. Faça um POST em /retrain/ primeiro."}
     
     try:
-        logger.info(f"Recebida requisição de predição para rota: {data.UF_emitente_NF} -> {data.UF_destinatario_NF}")
-        
-        # ... (criação do input_dict e conversão para DataFrame)
-        input_dict = {
-            "Peso total bruto": data.Peso_total_bruto,
-            "Metro cúbico": data.Metro_cubico,
-            "Valor NF": data.Valor_NF,
-            "Volume NF": data.Volume_NF,
-            "Tipo de frete NF": data.Tipo_de_frete_NF,
-            "Via de transporte": data.Via_de_transporte,
-            "UF emitente NF": data.UF_emitente_NF,
-            "UF destinatário NF": data.UF_destinatario_NF,
-        }
+        input_dict = data.model_dump(by_alias=False)
         df = pd.DataFrame([input_dict])
-        prediction = model_pipeline.predict(df) 
         
-        resultado = float(prediction[0])
-        logger.info(f"Predição calculada com sucesso: {resultado:.2f} dias.")
-        return {"predicted_transit_time": resultado}
+        # --- APLICA A TRANSFORMAÇÃO PRIMEIRO ---
+        X_transformado = mlops_system["transformadores"].transform(df)
+        
+        # 1. AVALIAÇÃO DE RISCO (Isolation Forest lê os dados transformados)
+        status_anomalia = mlops_system["cao_de_guarda"].predict(X_transformado)[0]
+        
+        # (O resto do código segue igual...)
+        if status_anomalia == -1:
+            alerta_risco = "ALTO: Frete atípico. Alargando janela de SLA."
+            alpha_req = 0.05 # 95% de confiança (Intervalo mais largo)
+        else:
+            alerta_risco = "BAIXO: Frete padrão."
+            alpha_req = 0.10 # 90% de confiança (Intervalo padrão)
+            
+        # 2. PREVISÃO E SLA (Custom Conformal)
+        predicao_media, lim_inf, lim_sup = mlops_system["conformal_model"].predict(df, alpha=alpha_req)
+        
+        tma_estimado = float(np.round(predicao_media[0], 1))
+        
+        # Garantimos que o prazo mínimo nunca será negativo ou zero
+        tma_min = max(1, int(np.floor(lim_inf[0]))) 
+        tma_max = int(np.ceil(lim_sup[0]))
+
+        # 3. EXPLICABILIDADE (SHAP)
+        X_transformado = mlops_system["transformadores"].transform(df)
+        shap_vals = mlops_system["explainer_shap"].shap_values(X_transformado)
+        
+        # Obtém os nomes das colunas após o preprocessor (OneHot gera colunas novas)
+        nomes_cols = mlops_system["transformadores"].get_feature_names_out()
+        
+        impactos = list(zip(nomes_cols, shap_vals[0]))
+        impactos_ordenados = sorted(impactos, key=lambda x: abs(x[1]), reverse=True)
+        
+        top_fatores = [
+            {"variavel": str(var).replace("cat__", "").replace("num__", ""), "impacto_dias": round(forca, 2)}
+            for var, forca in impactos_ordenados[:3]
+        ]
+        
+        return {
+            "risco": alerta_risco,
+            "tma_estimado_dias": tma_estimado,
+            "intervalo_sla_dias": [tma_min, tma_max],
+            "top_fatores_explicacao": top_fatores
+        }
         
     except Exception as e:
-        logger.exception("Erro interno durante o processamento da predição.")
+        logger.exception("Erro interno na rota de predição.")
         return {"error": str(e)}
 
 
 @app.post("/retrain/")
 async def retrain(req: RetrainRequest):
-    global model_pipeline
-    
+    global mlops_system
     valid_records = []
     invalid_count = 0
     
-    logger.info(f"Recebidos {len(req.records)} registros. Iniciando limpeza...")
-
+    logger.info(f"Recebidos {len(req.records)} registros para retreino.")
     df_raw = pd.DataFrame(req.records)
     required = RAW_COLS + ["transit time"]
 
     try:
         validate_and_clean_data(df_raw, required)
     except ValueError as e:
-        # Se a função explodir, nós pegamos a mensagem do erro (str(e)) 
-        # e devolvemos como um JSON pacífico para o Java e para o Teste
         return {"error": str(e)}
 
     for r in req.records:
         try:
-            # Tentamos forçar a validação individual da linha
             validated_row = FreightRetrainRecord(**r)
             valid_records.append(validated_row.model_dump(by_alias=False))
         except Exception:
-            # Se der erro, ignoramos a linha e contamos o erro
             invalid_count += 1
 
-    # Verificamos se, após a limpeza, ainda temos o mínimo necessário
-    if len(valid_records) < 10:
-        logger.error(f"Treino cancelado. Temos {len(valid_records)} linhas saudáveis (mínimo 10).")
-        return {
-            "error": "Dados insuficientes após limpeza",
-            "linhas_descartadas": invalid_count,
-            "linhas_saudaveis": len(valid_records)
-        }
-
-    logger.info(f"Limpeza concluída. {len(valid_records)} linhas salvas. {invalid_count} linhas descartadas.")
+    if len(valid_records) < 50: # Aumentado levemente para comportar o split do MAPIE
+        return {"error": f"Dados insuficientes. Temos {len(valid_records)} linhas saudáveis (mínimo exigido é 50)."}
 
     try:
-        # Agora seguimos o treino normalmente com valid_records...
         df = pd.DataFrame(valid_records)
-        
-        # Remove outliers lógicos
         df = remove_outliers_iqr(df, "transit_time")
 
         X = df.drop(columns=["transit_time"])
         y = df["transit_time"]
 
-        best_pipeline, metrics = optimize_and_train(X, y)
+        artefatos_gerados, metrics = optimize_and_train(X, y)
         
-        # 5. Salva em Produção
-        save_artifacts(best_pipeline, ARTIFACTS_DIR)
-        model_pipeline = best_pipeline
+        save_artifacts(artefatos_gerados, ARTIFACTS_FILE)
+        mlops_system = artefatos_gerados
 
         return {
-        "status": "ok",
-        "n_registros_treino": len(X),
-        "linhas_descartadas": invalid_count,
-        "mae_kfold": metrics["mae_kfold"],
-        "rmse_kfold": metrics["rmse_kfold"],
-        "r2_kfold": metrics["r2_kfold"],
-        "info_modelo": {
-            "usou_feature_engineering": metrics["usou_feature_engineering"],
-            "mensagem": "Pipeline atualizado e hiperparâmetros otimizados."
+            "status": "ok",
+            "n_registros_treino": len(X),
+            "linhas_descartadas": invalid_count,
+            "mae_kfold": metrics["mae_kfold"],
+            "rmse_kfold": metrics["rmse_kfold"],
+            "r2_kfold": metrics["r2_kfold"],
+            "info_modelo": {
+                "usou_feature_engineering": metrics["usou_feature_engineering"],
+                "mensagem": "Pipeline atualizado. Isolation Forest, MAPIE e SHAP calibrados com sucesso."
+            }
         }
-    }
-
     except Exception as e:
+        logger.exception("Erro fatal no retreino.")
         return {"error": str(e)}
 
 if __name__ == "__main__":

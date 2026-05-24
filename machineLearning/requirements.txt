@@ -12,6 +12,8 @@ numpy>=1.24.0
 # --- Machine Learning ---
 scikit-learn>=1.3.0
 joblib>=1.3.0
+shap>=0.51.0
+mapie>=1.4.0
 
 # --- Testes (Desenvolvimento) ---
 pytest>=7.4.0
