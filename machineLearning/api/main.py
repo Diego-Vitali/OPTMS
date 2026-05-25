@@ -15,6 +15,7 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.ensemble import RandomForestRegressor, IsolationForest
 from sklearn.exceptions import InconsistentVersionWarning
 from sklearn.model_selection import RandomizedSearchCV, train_test_split
+import itertools
 
 try:
     import shap
@@ -36,6 +37,14 @@ RAW_COLS = [
     "Peso total bruto", "Metro cúbico", "Valor NF", "Volume NF",
     "Tipo de frete NF", "Via de transporte", "UF emitente NF", "UF destinatário NF"
 ]
+
+# ── Configuração de Discretização (Cache Serving) ──────────────────────────
+# Definimos os limites dos baldes. float('inf') garante que qualquer número gigante caia no último balde.
+FAIXAS_PESO = [0, 50, 200, 1000, float('inf')]
+LABELS_PESO = ["LEVE_ATE_50KG", "MEDIO_ATE_200KG", "PESADO_ATE_1TON", "SUPER_PESADO"]
+
+FAIXAS_VALOR = [0, 1000, 5000, 20000, float('inf')]
+LABELS_VALOR = ["BAIXO_VALOR", "MEDIO_VALOR", "ALTO_VALOR", "CRITICO_VALOR"]
 
 logger = get_logger(__name__)
 
@@ -193,7 +202,6 @@ def optimize_and_train(X, y):
     search.fit(X_train, y_train)
     best_pipeline = search.best_estimator_
     
-    # --- A MÁGICA DA CORREÇÃO ACONTECE AQUI ---
     # Extraímos a inteligência de tradução de texto para número ANTES de instanciar os outros
     transformadores = best_pipeline[:-1] 
 
@@ -203,16 +211,12 @@ def optimize_and_train(X, y):
     cao_de_guarda = IsolationForest(contamination=0.01, random_state=42, n_jobs=-1)
     cao_de_guarda.fit(X_train_mastigado)
     
-# 4. Calibração da Margem de SLA (Nosso motor customizado)
+    # 4. Calibração da Margem de SLA (Nosso motor customizado)
     logger.info("Calibrando intervalos de confiança (Custom Conformal Prediction)...")
-    
-    # Envelopamos o melhor modelo do AutoML na nossa classe
     conformal_model = LUDSSplitConformal(estimator=best_pipeline)
-    
-    # Calibramos as margens de erro
     conformal_model.calibrate(X_calib, y_calib)
 
-    # 5. Inicialização do SHAP (Explicabilidade)
+    # 5. Inicialização do SHAP (Explicabilidade) com a segurança dos teus colegas
     explainer_shap = None
     if shap is None:
         logger.warning(
@@ -223,17 +227,88 @@ def optimize_and_train(X, y):
         logger.info("Instanciando Explicabilidade (SHAP)...")
         modelo_arvore = best_pipeline.named_steps["regressor"]
         explainer_shap = shap.TreeExplainer(modelo_arvore)
-    transformadores = best_pipeline[:-1] 
 
-    # 6. Agrupando os artefatos (Substitua 'mapie_model' por 'conformal_model')
+    # ── NOVA FASE 6: PROCESSAMENTO EM LOTE & GERADOR DE TABELA HASH ───────────
+    logger.info("A iniciar o processamento em lote para a geração do Cache Serving...")
+    prediction_cache = {}
+    
+    # Captura os domínios únicos categóricos diretamente da base de treino
+    unidades_origem = X_train["UF_emitente_NF"].unique()
+    unidades_destino = X_train["UF_destinatario_NF"].unique()
+    vias_transporte = X_train["Via_de_transporte"].unique()
+    tipos_frete = X_train["Tipo_de_frete_NF"].unique()
+    
+    # Representantes neutros para colunas contínuas não indexadas na chave hash
+    metro_medio = X_train["Metro_cubico"].median()
+    vol_medio = int(X_train["Volume_NF"].median())
+
+    # Produto Cartesiano mapeia todas as realidades operacionais possíveis
+    todas_combinacoes = list(itertools.product(
+        unidades_origem, unidades_destino, vias_transporte, tipos_frete, LABELS_PESO, LABELS_VALOR
+    ))
+    
+    logger.info(f"A pré-calcular Dossiês Preditivos para {len(todas_combinacoes)} chaves de cache...")
+    
+    for orig, dest, via, frete, lbl_peso, lbl_valor in todas_combinacoes:
+        chave_hash = f"{orig}_{dest}_{via}_{frete}_{lbl_peso}_{lbl_valor}"
+        
+        # Atribui valores numéricos representantes baseados no rótulo do balde
+        p_rep = FAIXAS_PESO[LABELS_PESO.index(lbl_peso)] if lbl_peso != "SUPER_PESADO" else 2000.0
+        v_rep = FAIXAS_VALOR[LABELS_VALOR.index(lbl_valor)] if lbl_valor != "CRITICO_VALOR" else 30000.0
+        
+        df_fake = pd.DataFrame([{
+            "Peso_total_bruto": float(p_rep if p_rep > 0 else 10.0),
+            "Metro_cubico": float(metro_medio),
+            "Valor_NF": float(v_rep if v_rep > 0 else 500.0),
+            "Volume_NF": int(vol_medio),
+            "Tipo_de_frete_NF": frete,
+            "Via_de_transporte": via,
+            "UF_emitente_NF": orig,
+            "UF_destinatario_NF": dest
+        }])
+        
+        try:
+            # Avaliação de anomalia pré-calculada
+            X_trans = transformadores.transform(df_fake)
+            status_anomalia = cao_de_guarda.predict(X_trans)[0]
+            alpha_req = 0.05 if status_anomalia == -1 else 0.10
+            
+            # Cálculo de prazos e limites seguros (Conformal)
+            pred_media, lim_inf, lim_sup = conformal_model.predict(df_fake, alpha=alpha_req)
+            
+            # --- PROTEÇÃO PARA O SHAP DOS COLEGAS ---
+            top_fatores = []
+            if explainer_shap is not None:
+                shap_vals = explainer_shap.shap_values(X_trans)
+                nomes_cols = transformadores.get_feature_names_out()
+                impactos = sorted(list(zip(nomes_cols, shap_vals[0])), key=lambda x: abs(x[1]), reverse=True)
+                top_fatores = [
+                    {"variavel": str(var).replace("cat__", "").replace("num__", ""), "impacto_dias": round(forca, 2)}
+                    for var, forca in impactos[:3]
+                ]
+            else:
+                top_fatores = [{"variavel": "Explicação Indisponível (Ambiente sem SHAP)", "impacto_dias": 0.0}]
+
+            # Registo completo do dossiê no Cache
+            prediction_cache[chave_hash] = {
+                "risco": "ALTO: Rota atípica no histórico." if status_anomalia == -1 else "BAIXO: Rota homologada.",
+                "tma_estimado_dias": float(np.round(pred_media[0], 1)),
+                "intervalo_sla_dias": [max(1, int(np.floor(lim_inf[0]))), int(np.ceil(lim_sup[0]))],
+                "top_fatores_explicacao": top_fatores
+            }
+        except Exception:
+            continue
+
+    # 7. Agrupando os artefatos com a tabela Hash integrada
     artefatos = {
         "cao_de_guarda": cao_de_guarda,
         "conformal_model": conformal_model, 
         "explainer_shap": explainer_shap,
-        "transformadores": transformadores
+        "transformadores": transformadores,
+        "prediction_cache": prediction_cache  # O repositório central O(1)
     }
 
-    # (O restante da função de extrair métricas continua igualzinho...)
+    # Extração de métricas de k-fold
     best_idx = search.best_index_
     mae = -search.cv_results_['mean_test_mae'][best_idx]
     rmse = -search.cv_results_['mean_test_rmse'][best_idx]
@@ -249,6 +324,20 @@ def optimize_and_train(X, y):
     return artefatos, metrics
 
 # ── Gerenciamento de Artefatos ─────────────────────────────────────────────
+def mapear_registro_para_chave(peso: float, valor: float, orig: str, dest: str, via: str, frete: str) -> str:
+    """
+    Transforma dados contínuos em dados discretos e monta a Chave Primária (String) 
+    para busca em O(1) na tabela Hash.
+    """
+    # np.digitize encontra em qual "balde" o número cai
+    idx_peso = np.digitize(peso, FAIXAS_PESO) - 1
+    lbl_peso = LABELS_PESO[min(max(0, idx_peso), len(LABELS_PESO)-1)]
+    
+    idx_valor = np.digitize(valor, FAIXAS_VALOR) - 1
+    lbl_valor = LABELS_VALOR[min(max(0, idx_valor), len(LABELS_VALOR)-1)]
+    
+    return f"{orig}_{dest}_{via}_{frete}_{lbl_peso}_{lbl_valor}"
+
 def save_artifacts(artefatos: dict, filepath: str):
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     joblib.dump(artefatos, filepath)
@@ -319,16 +408,41 @@ async def predict(data: FreightInput):
         return {"error": "Modelo não carregado. Faça um POST em /retrain/ primeiro."}
     
     try:
+        # 1. TENTA O CAMINHO ULTRA-RÁPIDO (CACHE O(1))
+        if "prediction_cache" in mlops_system:
+            chave_busca = mapear_registro_para_chave(
+                peso=data.Peso_total_bruto,
+                valor=data.Valor_NF,
+                orig=data.UF_emitente_NF,
+                dest=data.UF_destinatario_NF,
+                via=data.Via_de_transporte,
+                frete=data.Tipo_de_frete_NF
+            )
+            
+            cache_ram = mlops_system["prediction_cache"]
+            if chave_busca in cache_ram:
+                dossie_calculado = cache_ram[chave_busca]
+                return {
+                    "engine": "OPTMS_Cache_Serving_O(1)",
+                    "chave_hash_consultada": chave_busca,
+                    **dossie_calculado
+                }
+            else:
+                logger.warning(f"Cache Miss para a chave: {chave_busca}. Acionando fallback on-the-fly.")
+
+        # =====================================================================
+        # 2. CAMINHO DE FALLBACK ON-THE-FLY (O CÓDIGO DA TUA EQUIPE)
+        # Se chegou aqui, é porque não tem cache ou a chave não existe.
+        # =====================================================================
         input_dict = data.model_dump(by_alias=False)
         df = pd.DataFrame([input_dict])
         
         # --- APLICA A TRANSFORMAÇÃO PRIMEIRO ---
         X_transformado = mlops_system["transformadores"].transform(df)
         
-        # 1. AVALIAÇÃO DE RISCO (Isolation Forest lê os dados transformados)
+        # AVALIAÇÃO DE RISCO (Isolation Forest lê os dados transformados)
         status_anomalia = mlops_system["cao_de_guarda"].predict(X_transformado)[0]
         
-        # (O resto do código segue igual...)
         if status_anomalia == -1:
             alerta_risco = "ALTO: Frete atípico. Alargando janela de SLA."
             alpha_req = 0.05 # 95% de confiança (Intervalo mais largo)
@@ -336,7 +450,7 @@ async def predict(data: FreightInput):
             alerta_risco = "BAIXO: Frete padrão."
             alpha_req = 0.10 # 90% de confiança (Intervalo padrão)
             
-        # 2. PREVISÃO E SLA (Custom Conformal)
+        # PREVISÃO E SLA (Custom Conformal)
         predicao_media, lim_inf, lim_sup = mlops_system["conformal_model"].predict(df, alpha=alpha_req)
         
         tma_estimado = float(np.round(predicao_media[0], 1))
@@ -348,9 +462,8 @@ async def predict(data: FreightInput):
         top_fatores = []
         explainer_shap = mlops_system.get("explainer_shap")
 
-        # Mantem a API operacional mesmo quando SHAP nao estiver disponivel.
+        # Mantém a API operacional mesmo quando SHAP não estiver disponível.
         if explainer_shap is not None:
-            X_transformado = mlops_system["transformadores"].transform(df)
             shap_vals = explainer_shap.shap_values(X_transformado)
 
             # Obtém os nomes das colunas após o preprocessor (OneHot gera colunas novas)
@@ -363,8 +476,11 @@ async def predict(data: FreightInput):
                 {"variavel": str(var).replace("cat__", "").replace("num__", ""), "impacto_dias": round(forca, 2)}
                 for var, forca in impactos_ordenados[:3]
             ]
+        else:
+            top_fatores = [{"variavel": "Explicação Indisponível (Ambiente sem SHAP)", "impacto_dias": 0.0}]
         
         return {
+            "engine": "On_Demand_Computation", # Flag para mostrar na banca que o fallback funcionou
             "risco": alerta_risco,
             "tma_estimado_dias": tma_estimado,
             "intervalo_sla_dias": [tma_min, tma_max],
@@ -374,7 +490,6 @@ async def predict(data: FreightInput):
     except Exception as e:
         logger.exception("Erro interno na rota de predição.")
         return {"error": str(e)}
-
 
 @app.post("/retrain/")
 async def retrain(req: RetrainRequest):
