@@ -1,11 +1,10 @@
 import os
+import warnings
 import pandas as pd
 import numpy as np
-import pickle
 from fastapi import FastAPI
-from typing import Optional, List, Dict, Any
+from typing import List, Dict, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional, List, Dict, Any, Literal
 from logger import get_logger
 import joblib
 
@@ -14,8 +13,15 @@ from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.ensemble import RandomForestRegressor, IsolationForest
+from sklearn.exceptions import InconsistentVersionWarning
 from sklearn.model_selection import RandomizedSearchCV, train_test_split
-import shap
+
+try:
+    import shap
+    SHAP_IMPORT_ERROR = None
+except Exception as exc:
+    shap = None
+    SHAP_IMPORT_ERROR = exc
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -207,9 +213,16 @@ def optimize_and_train(X, y):
     conformal_model.calibrate(X_calib, y_calib)
 
     # 5. Inicialização do SHAP (Explicabilidade)
-    logger.info("Instanciando Explicabilidade (SHAP)...")
-    modelo_arvore = best_pipeline.named_steps["regressor"]
-    explainer_shap = shap.TreeExplainer(modelo_arvore)
+    explainer_shap = None
+    if shap is None:
+        logger.warning(
+            "SHAP indisponivel no ambiente. A API seguira sem explicabilidade. Motivo: %s",
+            SHAP_IMPORT_ERROR,
+        )
+    else:
+        logger.info("Instanciando Explicabilidade (SHAP)...")
+        modelo_arvore = best_pipeline.named_steps["regressor"]
+        explainer_shap = shap.TreeExplainer(modelo_arvore)
     transformadores = best_pipeline[:-1] 
 
     # 6. Agrupando os artefatos (Substitua 'mapie_model' por 'conformal_model')
@@ -243,7 +256,19 @@ def save_artifacts(artefatos: dict, filepath: str):
 
 def load_artifacts(filepath: str):
     if os.path.exists(filepath):
-        return joblib.load(filepath)
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings("error", category=InconsistentVersionWarning)
+                return joblib.load(filepath)
+        except InconsistentVersionWarning:
+            logger.warning(
+                "Artefatos ignorados por incompatibilidade de versao do scikit-learn. "
+                "Execute /retrain/ para gerar um modelo novo."
+            )
+        except Exception:
+            logger.exception(
+                "Falha ao carregar artefatos existentes. A API subira sem modelo carregado."
+            )
     return None
 
 mlops_system = load_artifacts(ARTIFACTS_FILE)
@@ -283,7 +308,7 @@ async def root():
 async def health():
     return {
         "status": "ok",
-        "modelo_carregado": model_pipeline is not None,
+        "modelo_carregado": mlops_system is not None,
     }
 
 
@@ -320,20 +345,24 @@ async def predict(data: FreightInput):
         tma_min = max(1, int(np.floor(lim_inf[0]))) 
         tma_max = int(np.ceil(lim_sup[0]))
 
-        # 3. EXPLICABILIDADE (SHAP)
-        X_transformado = mlops_system["transformadores"].transform(df)
-        shap_vals = mlops_system["explainer_shap"].shap_values(X_transformado)
-        
-        # Obtém os nomes das colunas após o preprocessor (OneHot gera colunas novas)
-        nomes_cols = mlops_system["transformadores"].get_feature_names_out()
-        
-        impactos = list(zip(nomes_cols, shap_vals[0]))
-        impactos_ordenados = sorted(impactos, key=lambda x: abs(x[1]), reverse=True)
-        
-        top_fatores = [
-            {"variavel": str(var).replace("cat__", "").replace("num__", ""), "impacto_dias": round(forca, 2)}
-            for var, forca in impactos_ordenados[:3]
-        ]
+        top_fatores = []
+        explainer_shap = mlops_system.get("explainer_shap")
+
+        # Mantem a API operacional mesmo quando SHAP nao estiver disponivel.
+        if explainer_shap is not None:
+            X_transformado = mlops_system["transformadores"].transform(df)
+            shap_vals = explainer_shap.shap_values(X_transformado)
+
+            # Obtém os nomes das colunas após o preprocessor (OneHot gera colunas novas)
+            nomes_cols = mlops_system["transformadores"].get_feature_names_out()
+
+            impactos = list(zip(nomes_cols, shap_vals[0]))
+            impactos_ordenados = sorted(impactos, key=lambda x: abs(x[1]), reverse=True)
+
+            top_fatores = [
+                {"variavel": str(var).replace("cat__", "").replace("num__", ""), "impacto_dias": round(forca, 2)}
+                for var, forca in impactos_ordenados[:3]
+            ]
         
         return {
             "risco": alerta_risco,

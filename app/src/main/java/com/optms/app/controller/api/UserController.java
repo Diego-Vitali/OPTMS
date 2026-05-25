@@ -20,7 +20,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.optms.app.model.User;
-import com.optms.app.repository.UserRepository;
 import com.optms.app.service.UserService;
 import lombok.RequiredArgsConstructor;
 
