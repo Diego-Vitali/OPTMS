@@ -29,7 +29,10 @@ public class MlController {
             @RequestBody MlPredictRequest payload,
             HttpServletRequest request
     ) {
-        request.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
+        Long companyId = (Long) request.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
+        if (companyId != null) {
+            payload.setCompanyId(companyId);
+        }
         return ResponseEntity.ok(mlPredictionService.predict(payload));
     }
 

@@ -1,6 +1,13 @@
 <?php
 $form = $form ?? [];
 $result = $result ?? [];
+$predictedDays = $result['tma_estimado_dias'] ?? null;
+$slaInterval = $result['intervalo_sla_dias'] ?? [];
+$risk = $result['risco'] ?? null;
+$engine = $result['engine'] ?? null;
+$artifactsId = $result['artifacts_id'] ?? null;
+$companyId = $result['company_id'] ?? null;
+$factors = $result['top_fatores_explicacao'] ?? [];
 ?>
 
 <section class="row g-4">
@@ -71,11 +78,65 @@ $result = $result ?? [];
     <div class="col-lg-5">
         <div class="info-card p-4 h-100">
             <h2 class="section-title h5 mb-3">Resultado previsto</h2>
-            <?php if (!empty($result) && empty($result['error']) && isset($result['predictedTransitTime'])): ?>
-                <div class="prediction-card text-center">
-                    <div class="small text-uppercase text-secondary fw-semibold mb-2">Transit time estimado</div>
-                    <div class="display-5 fw-bold text-navy"><?= e(number_format((float) $result['predictedTransitTime'], 2, ',', '.')) ?></div>
-                    <p class="text-secondary mb-0">dias</p>
+            <?php if (!empty($result) && empty($result['error']) && $predictedDays !== null): ?>
+                <div class="prediction-card">
+                    <div class="text-center mb-4">
+                        <div class="small text-uppercase text-secondary fw-semibold mb-2">Transit time estimado</div>
+                        <div class="display-5 fw-bold text-navy"><?= e(number_format((float) $predictedDays, 1, ',', '.')) ?></div>
+                        <p class="text-secondary mb-0">dias</p>
+                    </div>
+
+                    <div class="prediction-metrics">
+                        <?php if (is_array($slaInterval) && count($slaInterval) >= 2): ?>
+                            <div class="prediction-metric">
+                                <span>SLA din&acirc;mico</span>
+                                <strong><?= e((string) $slaInterval[0]) ?>-<?= e((string) $slaInterval[1]) ?> dias</strong>
+                            </div>
+                        <?php endif; ?>
+
+                        <?php if (!empty($risk)): ?>
+                            <div class="prediction-metric">
+                                <span>Risco</span>
+                                <strong><?= e((string) $risk) ?></strong>
+                            </div>
+                        <?php endif; ?>
+
+                        <?php if (!empty($engine)): ?>
+                            <div class="prediction-metric">
+                                <span>Motor</span>
+                                <strong><?= e((string) $engine) ?></strong>
+                            </div>
+                        <?php endif; ?>
+
+                        <?php if (!empty($companyId)): ?>
+                            <div class="prediction-metric">
+                                <span>Company</span>
+                                <strong>#<?= e((string) $companyId) ?></strong>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+
+                    <?php if (is_array($factors) && !empty($factors)): ?>
+                        <div class="prediction-factors mt-4">
+                            <div class="small text-uppercase text-secondary fw-semibold mb-2">Fatores de impacto</div>
+                            <?php foreach (array_slice($factors, 0, 3) as $factor): ?>
+                                <?php
+                                $variable = is_array($factor) ? ($factor['variavel'] ?? '-') : '-';
+                                $impact = is_array($factor) ? ($factor['impacto_dias'] ?? null) : null;
+                                ?>
+                                <div class="prediction-factor">
+                                    <span><?= e((string) $variable) ?></span>
+                                    <?php if ($impact !== null): ?>
+                                        <strong><?= e(number_format((float) $impact, 2, ',', '.')) ?> dias</strong>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php if (!empty($artifactsId)): ?>
+                        <p class="footer-note mt-4 mb-0">Artefato: <?= e((string) $artifactsId) ?></p>
+                    <?php endif; ?>
                 </div>
             <?php else: ?>
                 <p class="list-spec mb-0">O modelo retornará a estimativa em dias com base nas características logísticas e fiscais do embarque.</p>
