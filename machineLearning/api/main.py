@@ -7,6 +7,7 @@ from typing import List, Dict, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from logger import get_logger
 import joblib
+import uuid
 
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer, make_column_selector
@@ -501,56 +502,88 @@ async def predict(data: FreightInput):
         return {"error": str(e)}
 
 @app.post("/retrain/")
-async def retrain(req: RetrainRequest):
-    global mlops_system
-    valid_records = []
-    invalid_count = 0
-    
-    logger.info(f"Recebidos {len(req.records)} registros para retreino.")
-    df_raw = pd.DataFrame(req.records)
-    required = RAW_COLS + ["transit time"]
-
+async def retrain_model(request: RetrainRequest):
     try:
-        validate_and_clean_data(df_raw, required)
-    except ValueError as e:
-        return {"error": str(e)}
-
-    for r in req.records:
-        try:
-            validated_row = FreightRetrainRecord(**r)
-            valid_records.append(validated_row.model_dump(by_alias=False))
-        except Exception:
-            invalid_count += 1
-
-    if len(valid_records) < 50: # Aumentado levemente para comportar o split do MAPIE
-        return {"error": f"Dados insuficientes. Temos {len(valid_records)} linhas saudáveis (mínimo exigido é 50)."}
-
-    try:
-        df = pd.DataFrame(valid_records)
-        df = remove_outliers_iqr(df, "transit_time")
-
-        X = df.drop(columns=["transit_time"])
-        y = df["transit_time"]
-
-        artefatos_gerados, metrics = optimize_and_train(X, y)
+        logger.info(f"Iniciando retreino para Company: {request.company_id} | Lote de Entrada: {request.input_id}")
         
-        save_artifacts(artefatos_gerados, ARTIFACTS_FILE)
-        mlops_system = artefatos_gerados
-
-        return {
-            "status": "ok",
-            "n_registros_treino": len(X),
-            "linhas_descartadas": invalid_count,
-            "mae_kfold": metrics["mae_kfold"],
-            "rmse_kfold": metrics["rmse_kfold"],
-            "r2_kfold": metrics["r2_kfold"],
-            "info_modelo": {
-                "usou_feature_engineering": metrics["usou_feature_engineering"],
-                "mensagem": "Pipeline atualizado. Isolation Forest, MAPIE e SHAP calibrados com sucesso."
-            }
+        # 1. Busca Segura no PostgreSQL (Evita SQL Injection)
+        query = text("SELECT * FROM public.dados_treino_operacional WHERE input_id = :input_id")
+        
+        # O Pandas é capaz de ler a query SQL e virar uma tabela na mesma hora!
+        df = pd.read_sql(query, db_engine, params={"input_id": request.input_id})
+        
+        if df.empty:
+            return {"error": f"Nenhum dado operacional encontrado para o input_id {request.input_id}"}
+            
+        mapeamento_banco_para_ml = {
+            "peso_total_bruto": "Peso_total_bruto",
+            "metro_cubico": "Metro_cubico",
+            "valor_nf": "Valor_NF",
+            "volume_nf": "Volume_NF",
+            "tipo_de_frete_nf": "Tipo_de_frete_NF",
+            "via_de_transporte": "Via_de_transporte",
+            "uf_emitente_nf": "UF_emitente_NF",
+            "uf_destinatario_nf": "UF_destinatario_NF"
+            # O transit_time_dias já está minúsculo no código Python, então não precisa mapear
         }
+        df = df.rename(columns=mapeamento_banco_para_ml)
+
+        # 2. Separação de Variáveis (Dropamos as colunas de ID do banco que não servem para a IA)
+        cols_to_drop = ["id", "input_id", "transit_time_dias"]
+        X = df.drop(columns=cols_to_drop)
+        y = df["transit_time_dias"]
+        
+        # 3. Dispara a esteira do Cão de Guarda, AutoML, Conformal e SHAP
+        artefatos, metrics = optimize_and_train(X, y)
+        
+        # 4. Gera o ID único do Artefato e salva o arquivo físico
+        artifacts_id = f"modelo_cia{request.company_id}_{uuid.uuid4().hex[:8]}.pkl"
+        os.makedirs("api_artifacts", exist_ok=True)
+        caminho_arquivo = f"api_artifacts/{artifacts_id}"
+        joblib.dump(artefatos, caminho_arquivo)
+        
+        # Atualiza o modelo carregado na memória global da API para resposta imediata
+        global mlops_system
+        mlops_system = artefatos
+        
+        # 5. O CATÁLOGO (Model Registry e Data Lineage)
+        with db_engine.connect() as conn:
+            # A. Desativa qualquer modelo antigo dessa mesma empresa
+            conn.execute(
+                text("UPDATE public.catalogo_artefatos_ml SET ativo = FALSE WHERE company_id = :cid"),
+                {"cid": request.company_id}
+            )
+            
+            # B. Insere o novo modelo ativado junto com as suas métricas e ancestralidade
+            conn.execute(
+                text("""
+                    INSERT INTO public.catalogo_artefatos_ml 
+                    (artifacts_id, company_id, input_id, mae_kfold, rmse_kfold, r2_kfold, usou_feature_engineering, ativo)
+                    VALUES (:art_id, :cid, :iid, :mae, :rmse, :r2, :fe, TRUE)
+                """),
+                {
+                    "art_id": artifacts_id,
+                    "cid": request.company_id,
+                    "iid": request.input_id,
+                    "mae": metrics["mae_kfold"],
+                    "rmse": metrics["rmse_kfold"],
+                    "r2": metrics["r2_kfold"],
+                    "fe": metrics["usou_feature_engineering"]
+                }
+            )
+            conn.commit() # Essencial para gravar de fato no Postgres
+            
+        logger.info(f"Retreino concluído. Artefato salvo: {artifacts_id}")
+        
+        return {
+            "status": "sucesso",
+            "message": "Modelo treinado, catalogado e ativado no sistema MLOps.",
+            "artifacts_id": artifacts_id,
+            "metrics": metrics
+        }
+        
     except Exception as e:
-        logger.exception("Erro fatal no retreino.")
+        logger.exception("Erro crítico durante o retreino via Banco de Dados.")
         return {"error": str(e)}
 
 if __name__ == "__main__":
