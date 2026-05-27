@@ -15,6 +15,7 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.ensemble import RandomForestRegressor, IsolationForest
 from sklearn.exceptions import InconsistentVersionWarning
 from sklearn.model_selection import RandomizedSearchCV, train_test_split
+from sqlalchemy import create_engine, text
 import itertools
 
 try:
@@ -23,6 +24,15 @@ try:
 except Exception as exc:
     shap = None
     SHAP_IMPORT_ERROR = exc
+
+DB_USER = os.getenv("POSTGRES_USER", "postgres")
+DB_PASS = os.getenv("POSTGRES_PASSWORD", "postgres")
+DB_HOST = os.getenv("DB_HOST", "tma-postgres")   
+DB_PORT = os.getenv("DB_PORT", "5432")
+DB_DB   = os.getenv("POSTGRES_DB", "TMA")
+
+DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_DB}"
+db_engine = create_engine(DATABASE_URL)
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -81,9 +91,8 @@ class FreightRetrainRecord(FreightBase):
     transit_time: int = Field(..., gt=0, alias="transit time", description="O tempo de entrega tem que ser de pelo menos 1 dia")
 
 class RetrainRequest(BaseModel):
-    """Payload principal da rota /retrain/"""
-    # Regra: Garante que o Java nunca mande menos de 10 registros na própria requisição
-    records: List[Dict[str, Any]]
+    company_id: int
+    input_id: int
 
 # ---
 class LogisticsFeatureEngineer(BaseEstimator, TransformerMixin):
