@@ -85,7 +85,7 @@ class FreightBase(BaseModel):
 
 class FreightInput(FreightBase):
     """Payload para a rota /predict/ (Não tem transit time)"""
-    pass
+    company_id: int
 
 class FreightRetrainRecord(FreightBase):
     """Payload para uma única viagem histórica no /retrain/"""
@@ -370,7 +370,7 @@ def load_artifacts(filepath: str):
             )
     return None
 
-mlops_system = load_artifacts(ARTIFACTS_FILE)
+modelos_em_memoria = {}
 
 # ── Funções Auxiliares ─────────────────────────────────────────────────────
 def validate_and_clean_data(df: pd.DataFrame, required_cols: list) -> None:
@@ -413,12 +413,41 @@ async def health():
 
 @app.post("/predict/")
 async def predict(data: FreightInput):
-    global mlops_system
-    if mlops_system is None:
-        return {"error": "Modelo não carregado. Faça um POST em /retrain/ primeiro."}
-    
     try:
-        # 1. TENTA O CAMINHO ULTRA-RÁPIDO (CACHE O(1))
+        # =====================================================================
+        # FASE 1: DESCOBERTA E ROTEAMENTO MULTI-TENANT
+        # =====================================================================
+        query = text("""
+            SELECT artifacts_id 
+            FROM public.catalogo_artefatos_ml 
+            WHERE company_id = :cid AND ativo = TRUE 
+            LIMIT 1
+        """)
+        
+        with db_engine.connect() as conn:
+            resultado = conn.execute(query, {"cid": data.company_id}).fetchone()
+            
+        if not resultado:
+            return {"error": f"Nenhum modelo ativo encontrado para a company_id {data.company_id}. Solicite o retreino primeiro."}
+            
+        artifacts_id = resultado[0]
+        
+        # Lazy Loading: Só vai no disco rígido se o modelo não estiver na RAM
+        global modelos_em_memoria
+        if artifacts_id not in modelos_em_memoria:
+            caminho_arquivo = f"api_artifacts/{artifacts_id}"
+            if not os.path.exists(caminho_arquivo):
+                return {"error": f"Arquivo físico '{artifacts_id}' corrompido ou não encontrado no servidor."}
+            
+            logger.info(f"Carregando artefato {artifacts_id} para a memória RAM...")
+            modelos_em_memoria[artifacts_id] = joblib.load(caminho_arquivo)
+            
+        # Puxa o ecossistema exato do cliente logado
+        mlops_system = modelos_em_memoria[artifacts_id]
+
+        # =====================================================================
+        # FASE 2: TENTATIVA DE RESPOSTA INSTANTÂNEA (CACHE O(1))
+        # =====================================================================
         if "prediction_cache" in mlops_system:
             chave_busca = mapear_registro_para_chave(
                 peso=data.Peso_total_bruto,
@@ -433,7 +462,9 @@ async def predict(data: FreightInput):
             if chave_busca in cache_ram:
                 dossie_calculado = cache_ram[chave_busca]
                 return {
-                    "engine": "OPTMS_Cache_Serving_O(1)",
+                    "engine": "LUDS_Cache_Serving_O(1)",
+                    "company_id": data.company_id,
+                    "artifacts_id": artifacts_id,
                     "chave_hash_consultada": chave_busca,
                     **dossie_calculado
                 }
@@ -441,44 +472,34 @@ async def predict(data: FreightInput):
                 logger.warning(f"Cache Miss para a chave: {chave_busca}. Acionando fallback on-the-fly.")
 
         # =====================================================================
-        # 2. CAMINHO DE FALLBACK ON-THE-FLY (O CÓDIGO DA TUA EQUIPE)
-        # Se chegou aqui, é porque não tem cache ou a chave não existe.
+        # FASE 3: FALLBACK ON-THE-FLY (CÁLCULO SOB DEMANDA)
         # =====================================================================
-        input_dict = data.model_dump(by_alias=False)
+        input_dict = data.model_dump(by_alias=False, exclude={"company_id"}) # Exclui o company_id pois ele não entra na matemática da IA
         df = pd.DataFrame([input_dict])
         
-        # --- APLICA A TRANSFORMAÇÃO PRIMEIRO ---
         X_transformado = mlops_system["transformadores"].transform(df)
         
-        # AVALIAÇÃO DE RISCO (Isolation Forest lê os dados transformados)
         status_anomalia = mlops_system["cao_de_guarda"].predict(X_transformado)[0]
         
         if status_anomalia == -1:
             alerta_risco = "ALTO: Frete atípico. Alargando janela de SLA."
-            alpha_req = 0.05 # 95% de confiança (Intervalo mais largo)
+            alpha_req = 0.05 
         else:
             alerta_risco = "BAIXO: Frete padrão."
-            alpha_req = 0.10 # 90% de confiança (Intervalo padrão)
+            alpha_req = 0.10 
             
-        # PREVISÃO E SLA (Custom Conformal)
         predicao_media, lim_inf, lim_sup = mlops_system["conformal_model"].predict(df, alpha=alpha_req)
         
         tma_estimado = float(np.round(predicao_media[0], 1))
-        
-        # Garantimos que o prazo mínimo nunca será negativo ou zero
         tma_min = max(1, int(np.floor(lim_inf[0]))) 
         tma_max = int(np.ceil(lim_sup[0]))
 
         top_fatores = []
         explainer_shap = mlops_system.get("explainer_shap")
 
-        # Mantém a API operacional mesmo quando SHAP não estiver disponível.
         if explainer_shap is not None:
             shap_vals = explainer_shap.shap_values(X_transformado)
-
-            # Obtém os nomes das colunas após o preprocessor (OneHot gera colunas novas)
             nomes_cols = mlops_system["transformadores"].get_feature_names_out()
-
             impactos = list(zip(nomes_cols, shap_vals[0]))
             impactos_ordenados = sorted(impactos, key=lambda x: abs(x[1]), reverse=True)
 
@@ -490,7 +511,9 @@ async def predict(data: FreightInput):
             top_fatores = [{"variavel": "Explicação Indisponível (Ambiente sem SHAP)", "impacto_dias": 0.0}]
         
         return {
-            "engine": "On_Demand_Computation", # Flag para mostrar na banca que o fallback funcionou
+            "engine": "On_Demand_Computation",
+            "company_id": data.company_id,
+            "artifacts_id": artifacts_id,
             "risco": alerta_risco,
             "tma_estimado_dias": tma_estimado,
             "intervalo_sla_dias": [tma_min, tma_max],
