@@ -5,11 +5,16 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.SQLException;
+
 @Component
 @RequiredArgsConstructor
 public class SchemaMaintenanceService implements CommandLineRunner {
 
     private final JdbcTemplate jdbcTemplate;
+    private final DataSource dataSource;
 
     @Override
     public void run(String... args) {
@@ -29,5 +34,48 @@ public class SchemaMaintenanceService implements CommandLineRunner {
         jdbcTemplate.execute("ALTER TABLE IF EXISTS companies ADD COLUMN IF NOT EXISTS apikey VARCHAR(22)");
         jdbcTemplate.execute("UPDATE companies SET active = TRUE WHERE active IS NULL");
         jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_companies_apikey ON companies (apikey)");
+
+        if (isPostgreSql()) {
+            jdbcTemplate.execute("ALTER TABLE IF EXISTS tabela_frete ADD COLUMN IF NOT EXISTS ufs_origem JSONB");
+            jdbcTemplate.execute("ALTER TABLE IF EXISTS tabela_frete ADD COLUMN IF NOT EXISTS vigencia_inicio DATE");
+            jdbcTemplate.execute("ALTER TABLE IF EXISTS tabela_frete ADD COLUMN IF NOT EXISTS vigencia_fim DATE");
+            if (columnExists("tabela_frete", "uf_origem")) {
+                jdbcTemplate.execute("UPDATE tabela_frete SET ufs_origem = jsonb_build_array(trim(uf_origem)) " +
+                        "WHERE ufs_origem IS NULL AND uf_origem IS NOT NULL");
+                jdbcTemplate.execute("ALTER TABLE IF EXISTS tabela_frete ALTER COLUMN uf_origem DROP NOT NULL");
+            }
+            jdbcTemplate.execute("ALTER TABLE IF EXISTS objeto_frete ADD COLUMN IF NOT EXISTS uf_origem CHAR(2)");
+            jdbcTemplate.execute("ALTER TABLE IF EXISTS objeto_frete ADD COLUMN IF NOT EXISTS uf_destino CHAR(2)");
+            if (columnExists("objeto_frete", "uf")) {
+                jdbcTemplate.execute("UPDATE objeto_frete SET uf_destino = trim(uf) " +
+                        "WHERE uf_destino IS NULL AND uf IS NOT NULL");
+            }
+            if (columnExists("objeto_frete", "ufs_destino")) {
+                jdbcTemplate.execute("UPDATE objeto_frete SET uf_destino = trim(ufs_destino->>0) " +
+                        "WHERE uf_destino IS NULL AND jsonb_array_length(ufs_destino) > 0");
+            }
+            jdbcTemplate.execute("ALTER TABLE IF EXISTS objeto_frete ADD COLUMN IF NOT EXISTS config_calculo JSONB");
+            jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_tabela_frete_ufs_origem " +
+                    "ON tabela_frete USING GIN (ufs_origem)");
+            jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_objeto_frete_config_calculo " +
+                    "ON objeto_frete USING GIN (config_calculo)");
+        }
+    }
+
+    private boolean isPostgreSql() {
+        try (Connection connection = dataSource.getConnection()) {
+            return "PostgreSQL".equalsIgnoreCase(connection.getMetaData().getDatabaseProductName());
+        } catch (SQLException exception) {
+            return false;
+        }
+    }
+
+    private boolean columnExists(String tableName, String columnName) {
+        try (Connection connection = dataSource.getConnection();
+             var columns = connection.getMetaData().getColumns(null, null, tableName, columnName)) {
+            return columns.next();
+        } catch (SQLException exception) {
+            return false;
+        }
     }
 }

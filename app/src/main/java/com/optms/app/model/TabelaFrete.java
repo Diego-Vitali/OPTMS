@@ -6,10 +6,15 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
-/** Tabela de frete ativa para uma UF de origem. */
+/** Tabela de frete ativa para uma ou mais UFs de origem. */
 @Getter
 @Setter
 @Entity
@@ -24,12 +29,19 @@ public class TabelaFrete {
     @Column(name = "company_id", nullable = false)
     private Long companyId;
 
-    /** UF do estado de origem que esta tabela atende (ex.: "SP"). */
-    @Column(name = "uf_origem", nullable = false, length = 2)
-    private String ufOrigem;
+    /** UFs de origem que esta tabela atende (ex.: ["SP", "MG"]). */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "ufs_origem", nullable = false, columnDefinition = "jsonb")
+    private List<String> ufsOrigem = new ArrayList<>();
 
     @Column(name = "nome")
     private String nome;
+
+    @Column(name = "vigencia_inicio")
+    private LocalDate vigenciaInicio;
+
+    @Column(name = "vigencia_fim")
+    private LocalDate vigenciaFim;
 
     /** Indica se a tabela está vigente e deve ser usada nas cotações. */
     @Column(name = "ativa")

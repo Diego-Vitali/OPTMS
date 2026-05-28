@@ -2,6 +2,34 @@
 $tables = $tables ?? [];
 $form = $form ?? ['company_id' => ''];
 $isAdmin = !empty($isAdmin);
+
+$formatList = static function (array|null $values, string $empty = 'Todas'): string {
+    if (empty($values)) {
+        return $empty;
+    }
+    return implode(', ', array_map(static fn ($value) => (string) $value, $values));
+};
+
+$label = static function (string|null $value): string {
+    return match ($value) {
+        'PESO_BRUTO' => 'Peso bruto',
+        'VALOR_NOTA' => 'Valor da nota',
+        'VALOR_FRETE_PARTIDA' => 'Frete partida',
+        'VALOR_FIXO' => 'Valor fixo',
+        'PERCENTUAL' => 'Percentual',
+        'MULTIPLICADOR' => 'Multiplicador',
+        'FAIXA' => 'Por faixa',
+        'CONSTANTE' => 'Constante',
+        default => (string) ($value ?? '-'),
+    };
+};
+
+$formatLimit = static function (mixed $value): string {
+    if ($value === null || $value === '') {
+        return 'sem limite';
+    }
+    return number_format((float) $value, 2, ',', '.');
+};
 ?>
 
 <section class="row g-4">
@@ -54,7 +82,9 @@ $isAdmin = !empty($isAdmin);
                             <th>ID</th>
                             <?php if ($isAdmin): ?><th>Empresa</th><?php endif; ?>
                             <th>Nome</th>
-                            <th>UF origem</th>
+                            <th>UFs origem</th>
+                            <th>UFs destino</th>
+                            <th>Vigência</th>
                             <th>Status</th>
                             <th class="text-end">Ações</th>
                         </tr>
@@ -62,7 +92,7 @@ $isAdmin = !empty($isAdmin);
                     <tbody>
                         <?php if (empty($tables)): ?>
                             <tr>
-                                <td colspan="<?= $isAdmin ? '6' : '5' ?>" class="text-center text-secondary py-4">Nenhuma tabela encontrada.</td>
+                                <td colspan="<?= $isAdmin ? '8' : '7' ?>" class="text-center text-secondary py-4">Nenhuma tabela encontrada.</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($tables as $table): ?>
@@ -70,7 +100,9 @@ $isAdmin = !empty($isAdmin);
                                     <td><?= e((string) ($table['id'] ?? '-')) ?></td>
                                     <?php if ($isAdmin): ?><td><?= e((string) ($table['companyId'] ?? '-')) ?></td><?php endif; ?>
                                     <td><?= e((string) ($table['nome'] ?? '-')) ?></td>
-                                    <td><?= e((string) ($table['ufOrigem'] ?? '-')) ?></td>
+                                    <td><?= e($formatList($table['ufsOrigem'] ?? [], '-')) ?></td>
+                                    <td><?= e($formatList($table['ufsDestino'] ?? [])) ?></td>
+                                    <td><?= e((string) ($table['vigenciaInicio'] ?? '-')) ?> até <?= e((string) ($table['vigenciaFim'] ?? '-')) ?></td>
                                     <td>
                                         <?php if (!empty($table['ativa'])): ?>
                                             <span class="badge text-bg-success">Ativa</span>
@@ -89,6 +121,53 @@ $isAdmin = !empty($isAdmin);
                                                 <?= !empty($table['ativa']) ? 'Desativar' : 'Ativar' ?>
                                             </button>
                                         </form>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td colspan="<?= $isAdmin ? '8' : '7' ?>" class="bg-light">
+                                        <?php $objects = $table['objetos'] ?? []; ?>
+                                        <?php if (empty($objects)): ?>
+                                            <span class="text-secondary">Nenhum objeto de frete cadastrado.</span>
+                                        <?php else: ?>
+                                            <div class="table-responsive">
+                                                <table class="table table-sm mb-0 align-middle">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Objeto</th>
+                                                            <th>Nome</th>
+                                                            <th>Origem</th>
+                                                            <th>Destino</th>
+                                                            <th>Forma</th>
+                                                            <th>Faixa por</th>
+                                                            <th>Regras</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        <?php foreach ($objects as $object): ?>
+                                                            <?php $config = $object['configCalculo'] ?? []; ?>
+                                                            <tr>
+                                                                <td><span class="badge text-bg-dark"><?= e((string) ($object['tipoObjeto'] ?? '-')) ?></span></td>
+                                                                <td><?= e((string) ($object['nomeComponente'] ?? '-')) ?></td>
+                                                                <td><?= e((string) ($object['ufOrigem'] ?? '-')) ?></td>
+                                                                <td><?= e((string) ($object['ufDestino'] ?? '-')) ?></td>
+                                                                <td><?= e($label($config['formaCalculo'] ?? null)) ?></td>
+                                                                <td><?= e($label($config['unidadeFaixa'] ?? null)) ?></td>
+                                                                <td>
+                                                                    <?php foreach (($config['regras'] ?? []) as $rule): ?>
+                                                                        <div class="small">
+                                                                            <?= e($formatLimit($rule['limiteInicial'] ?? null)) ?> até <?= e($formatLimit($rule['limiteFinal'] ?? null)) ?>:
+                                                                            <?= e($label($rule['tipoCalculo'] ?? null)) ?>
+                                                                            <?= e(number_format((float) ($rule['valorCalculo'] ?? 0), 2, ',', '.')) ?>
+                                                                            sobre <?= e($label($rule['unidadeVariante'] ?? null)) ?>
+                                                                        </div>
+                                                                    <?php endforeach; ?>
+                                                                </td>
+                                                            </tr>
+                                                        <?php endforeach; ?>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        <?php endif; ?>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

@@ -52,9 +52,7 @@ mysql -u root -p < database/schema.sql
 
 ## Key Business Logic
 
-**Freight quotation** (`CotacaoService`): finds the active freight table, locates the matching origin/destination/weight-or-value range via `TabelaFreteFaixaRepository.findFaixa()`, then applies:
-- PESO type: `MAX(weight, min_weight) × price_per_kg + GRIS% + AdValorem% + toll`
-- VALOR type: `MAX(NF_value × %, min_value) + toll`
+**Freight quotation** (`CotacaoService`): finds active freight tables containing the requested origin UF, selects the PARTIDA object and applicable COMPONENTEs for the destination UF, then applies each constant or range rule with `VALOR_FIXO`, `PERCENTUAL`, or `MULTIPLICADOR`.
 
 **ML prediction** (`PrevisaoService`): sends 8 fields to FastAPI `/predict/`, stores result in `tb_previsao`.
 
@@ -68,9 +66,13 @@ Default admin: `admin@tms.com` / `admin123` (BCrypt encoded in schema.sql)
 
 ## Freight Table xlsx Format
 
-**Sheet "Config"** (key/value pairs): `TIPO` (PESO|VALOR), `TRANSPORTADORA`, `VIGENCIA_INICIO`, `VIGENCIA_FIM`
+**Sheet "Config"** (row 1 = header): `Nome Referência | Vigência Início | Vigência Fim`
 
-**Sheet "Tabela"** (row 1 = header): `UF_ORIGEM | UF_DESTINO | FAIXA_INICIAL | FAIXA_FINAL | VALOR_FRETE | PESO_MINIMO | GRIS | AD_VALOREM | PEDAGIO`
+**Sheet "Frete_Partida"** (row 1 = header): `UF Origem | UF Destino | Forma Calculo | Unidade Faixa | Limite Inicial | Limite Final | Unidade variante | Tipo Calculo | Valor do cálculo`
+
+**Sheet "Componentes"** (row 1 = header): `UF Origem | UF Destino | Nome Componente | Forma Calculo | Unidade Faixa | Limite Inicial | Limite Final | Unidade variante | Tipo Calculo | Valor do cálculo`
+
+Each row represents one specific origin/destination route. `FORMA_CALCULO` is `FAIXA` or `CONSTANTE`; `TIPO_CALCULO` is `VALOR_FIXO`, `PERCENTUAL`, or `MULTIPLICADOR`.
 
 ## Orders xlsx Format
 

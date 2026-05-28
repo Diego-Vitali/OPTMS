@@ -15,7 +15,7 @@
                 <div class="alert alert-success">
                     <strong><?= e((string) ($result['message'] ?? 'Upload concluído.')) ?></strong><br>
                     Tabela ID: <?= e((string) ($result['tabelaId'] ?? '-')) ?> |
-                    UF origem: <?= e((string) ($result['ufOrigem'] ?? '-')) ?> |
+                    UFs origem: <?= e(implode(', ', $result['ufsOrigem'] ?? [])) ?> |
                     Objetos criados: <?= e((string) ($result['objetosCriados'] ?? '0')) ?>
                 </div>
             <?php endif; ?>
@@ -42,12 +42,13 @@
         <div class="info-card p-4 h-100">
             <h2 class="section-title h5 mb-3">Formato esperado</h2>
             <div class="list-spec">
-                <p><strong>Aba Config</strong>: `TIPO`, `TRANSPORTADORA`, `VIGENCIA_INICIO`, `VIGENCIA_FIM`.</p>
-                <p><strong>Aba Tabela</strong>: `UF_ORIGEM`, `UF_DESTINO`, `FAIXA_INICIAL`, `FAIXA_FINAL`, `VALOR_FRETE`, `PESO_MINIMO`, `GRIS`, `AD_VALOREM`, `PEDAGIO`.</p>
+                <p><strong>Aba Config</strong>: `Nome Referência`, `Vigência Início`, `Vigência Fim`.</p>
+                <p><strong>Aba Frete_Partida</strong>: `UF Origem`, `UF Destino`, `Forma Calculo`, `Unidade Faixa`, `Limite Inicial`, `Limite Final`, `Unidade variante`, `Tipo Calculo`, `Valor do cálculo`.</p>
+                <p><strong>Aba Componentes</strong>: mesmas colunas de rota e cálculo, adicionando `Nome Componente`.</p>
                 <?php if (!empty($isAdmin)): ?>
                     <p><strong>Modo admin</strong>: informe o ID da empresa que deve receber a tabela.</p>
                 <?php endif; ?>
-                <p class="mb-0"><strong>Regra prática</strong>: use apenas uma UF de origem por arquivo para manter o cadastro consistente.</p>
+                <p class="mb-0"><strong>Rotas</strong>: cada linha representa uma origem e um destino específicos.</p>
             </div>
         </div>
     </div>

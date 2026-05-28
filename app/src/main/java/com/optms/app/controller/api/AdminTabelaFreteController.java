@@ -1,7 +1,7 @@
 package com.optms.app.controller.api;
 
 import com.optms.app.dto.TabelaFreteUploadResponse;
-import com.optms.app.model.TabelaFrete;
+import com.optms.app.dto.TabelaFreteResponse;
 import com.optms.app.service.TabelaFreteService;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -25,7 +25,7 @@ public class AdminTabelaFreteController {
     private final TabelaFreteService tabelaFreteService;
 
     @GetMapping
-    public ResponseEntity<List<TabelaFrete>> listar(@RequestParam(required = false) Long companyId) {
+    public ResponseEntity<List<TabelaFreteResponse>> listar(@RequestParam(required = false) Long companyId) {
         return ResponseEntity.ok(tabelaFreteService.listarComoAdmin(companyId));
     }
 
@@ -38,12 +38,12 @@ public class AdminTabelaFreteController {
     }
 
     @PatchMapping("/{id}/ativar")
-    public ResponseEntity<TabelaFrete> ativar(@PathVariable Long id) {
+    public ResponseEntity<TabelaFreteResponse> ativar(@PathVariable Long id) {
         return ResponseEntity.ok(tabelaFreteService.ativarPorId(id));
     }
 
     @PatchMapping("/{id}/desativar")
-    public ResponseEntity<TabelaFrete> desativar(@PathVariable Long id) {
+    public ResponseEntity<TabelaFreteResponse> desativar(@PathVariable Long id) {
         return ResponseEntity.ok(tabelaFreteService.desativarPorId(id));
     }
 }

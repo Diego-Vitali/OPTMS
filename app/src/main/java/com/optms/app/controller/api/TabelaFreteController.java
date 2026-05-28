@@ -2,8 +2,8 @@ package com.optms.app.controller.api;
 
 import com.optms.app.authentication.CompanyApiKeyFilter;
 import com.optms.app.dto.TabelaFreteRequest;
+import com.optms.app.dto.TabelaFreteResponse;
 import com.optms.app.dto.TabelaFreteUploadResponse;
-import com.optms.app.model.TabelaFrete;
 import com.optms.app.service.TabelaFreteService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -27,13 +27,13 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 @RequestMapping("/api/tabelas-frete")
 @RequiredArgsConstructor
-@Tag(name = "Tabelas de Frete", description = "Cadastro de tabelas de frete por UF de origem")
+@Tag(name = "Tabelas de Frete", description = "Cadastro de tabelas de frete por uma ou mais UFs de origem")
 public class TabelaFreteController {
 
     private final TabelaFreteService tabelaFreteService;
 
     @GetMapping
-    public ResponseEntity<List<TabelaFrete>> listar(HttpServletRequest httpRequest) {
+    public ResponseEntity<List<TabelaFreteResponse>> listar(HttpServletRequest httpRequest) {
         Long companyId = (Long) httpRequest.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
         return ResponseEntity.ok(tabelaFreteService.listar(companyId));
     }
@@ -41,13 +41,13 @@ public class TabelaFreteController {
     @PostMapping
     @Operation(
         summary = "Criar tabela de frete",
-        description = "Cadastra uma nova tabela de frete com seus componentes (PARTIDA + COMPONENTEs) para uma UF de origem."
+        description = "Cadastra uma nova tabela de frete com seus componentes (PARTIDA + COMPONENTEs) para uma ou mais UFs de origem."
     )
     @ApiResponse(responseCode = "201", description = "Tabela criada com sucesso")
     @ApiResponse(responseCode = "400", description = "Payload inválido")
-    public ResponseEntity<TabelaFrete> criar(@RequestBody TabelaFreteRequest request, HttpServletRequest httpRequest) {
+    public ResponseEntity<TabelaFreteResponse> criar(@RequestBody TabelaFreteRequest request, HttpServletRequest httpRequest) {
         Long companyId = (Long) httpRequest.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
-        TabelaFrete saved = tabelaFreteService.criar(request, companyId);
+        TabelaFreteResponse saved = tabelaFreteService.criar(request, companyId);
         return ResponseEntity.status(HttpStatus.CREATED).body(saved);
     }
 
@@ -61,8 +61,8 @@ public class TabelaFreteController {
     }
 
     @PatchMapping("/{id}/desativar")
-    public ResponseEntity<TabelaFrete> desativar(@PathVariable Long id, HttpServletRequest request) {
-        TabelaFrete tabela;
+    public ResponseEntity<TabelaFreteResponse> desativar(@PathVariable Long id, HttpServletRequest request) {
+        TabelaFreteResponse tabela;
 
         if (Boolean.TRUE.equals(request.getAttribute(MasterApiKey.MASTER_ACCESS_ATTRIBUTE))) {
             tabela = tabelaFreteService.desativarPorId(id);
@@ -75,8 +75,8 @@ public class TabelaFreteController {
     }
 
     @PatchMapping("/{id}/ativar")
-    public ResponseEntity<TabelaFrete> ativar(@PathVariable Long id, HttpServletRequest request) {
-        TabelaFrete tabela;
+    public ResponseEntity<TabelaFreteResponse> ativar(@PathVariable Long id, HttpServletRequest request) {
+        TabelaFreteResponse tabela;
 
         if (Boolean.TRUE.equals(request.getAttribute(MasterApiKey.MASTER_ACCESS_ATTRIBUTE))) {
             tabela = tabelaFreteService.ativarPorId(id);

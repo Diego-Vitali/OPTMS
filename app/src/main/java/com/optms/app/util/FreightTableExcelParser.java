@@ -2,17 +2,25 @@ package com.optms.app.util;
 
 import com.optms.app.dto.TabelaFreteRequest;
 import com.optms.app.dto.TabelaFreteRequest.ObjetoFreteDto;
-import com.optms.app.model.FaixaCalculo;
+import com.optms.app.model.ConfiguracaoCalculoFrete;
+import com.optms.app.model.RegraCalculo;
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellType;
+import org.apache.poi.ss.usermodel.DateUtil;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -25,16 +33,35 @@ import org.springframework.web.server.ResponseStatusException;
 @Component
 public class FreightTableExcelParser {
 
-    private static final Set<String> REQUIRED_HEADERS = Set.of(
+    private static final Set<String> CONFIG_HEADERS = Set.of(
+            "NOME_REFERENCIA",
+            "VIGENCIA_INICIO",
+            "VIGENCIA_FIM"
+    );
+
+    private static final Set<String> RULE_HEADERS = Set.of(
             "UF_ORIGEM",
             "UF_DESTINO",
-            "FAIXA_INICIAL",
-            "FAIXA_FINAL",
-            "VALOR_FRETE",
-            "PESO_MINIMO",
-            "GRIS",
-            "AD_VALOREM",
-            "PEDAGIO"
+            "FORMA_CALCULO",
+            "UNIDADE_FAIXA",
+            "LIMITE_INICIAL",
+            "LIMITE_FINAL",
+            "UNIDADE_VARIANTE",
+            "TIPO_CALCULO",
+            "VALOR_DO_CALCULO"
+    );
+
+    private static final Set<String> COMPONENT_HEADERS = Set.of(
+            "UF_ORIGEM",
+            "UF_DESTINO",
+            "NOME_COMPONENTE",
+            "FORMA_CALCULO",
+            "UNIDADE_FAIXA",
+            "LIMITE_INICIAL",
+            "LIMITE_FINAL",
+            "UNIDADE_VARIANTE",
+            "TIPO_CALCULO",
+            "VALOR_DO_CALCULO"
     );
 
     public TabelaFreteRequest parse(MultipartFile file) {
@@ -43,57 +70,32 @@ public class FreightTableExcelParser {
         }
 
         try (InputStream inputStream = file.getInputStream(); Workbook workbook = new XSSFWorkbook(inputStream)) {
-            Sheet configSheet = workbook.getSheet("Config");
-            Sheet dataSheet = workbook.getSheet("Tabela");
+            Sheet configSheet = requireSheet(workbook, "Config");
+            Sheet baseFreightSheet = requireSheet(workbook, "Frete_Partida");
+            Sheet componentsSheet = workbook.getSheet("Componentes");
 
-            if (configSheet == null || dataSheet == null) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "O arquivo deve conter as abas 'Config' e 'Tabela'");
-            }
-
-            Map<String, String> config = parseConfig(configSheet);
-            Map<String, Integer> headers = ExcelSupport.mapHeaders(dataSheet.getRow(dataSheet.getFirstRowNum()));
-            ExcelSupport.requireHeaders(headers, REQUIRED_HEADERS);
-
-            List<FreightRow> rows = new ArrayList<>();
-            for (int index = dataSheet.getFirstRowNum() + 1; index <= dataSheet.getLastRowNum(); index++) {
-                Row row = dataSheet.getRow(index);
-                if (ExcelSupport.isBlank(row)) {
-                    continue;
-                }
-
-                rows.add(new FreightRow(
-                        normalizeUf(requiredText(row, headers, "UF_ORIGEM")),
-                        normalizeUf(requiredText(row, headers, "UF_DESTINO")),
-                        requiredDecimal(row, headers, "FAIXA_INICIAL"),
-                        requiredDecimal(row, headers, "FAIXA_FINAL"),
-                        requiredDecimal(row, headers, "VALOR_FRETE"),
-                        ExcelSupport.decimal(row, headers, "PESO_MINIMO"),
-                        zeroIfNull(ExcelSupport.decimal(row, headers, "GRIS")),
-                        zeroIfNull(ExcelSupport.decimal(row, headers, "AD_VALOREM")),
-                        zeroIfNull(ExcelSupport.decimal(row, headers, "PEDAGIO"))
-                ));
+            ConfigRow config = parseConfig(configSheet);
+            List<FreightRuleRow> rows = new ArrayList<>();
+            rows.addAll(parseRuleSheet(baseFreightSheet, "PARTIDA", false));
+            if (componentsSheet != null) {
+                rows.addAll(parseRuleSheet(componentsSheet, "COMPONENTE", true));
             }
 
             if (rows.isEmpty()) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nenhuma linha válida encontrada na aba Tabela");
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Nenhuma linha válida encontrada nas abas Frete_Partida e Componentes");
             }
-
-            List<String> origins = rows.stream()
-                    .map(FreightRow::ufOrigem)
-                    .distinct()
-                    .toList();
-            if (origins.size() != 1) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "O upload deve conter apenas uma UF de origem por arquivo");
-            }
-
-            String rangeType = normalizeRangeType(config.get("TIPO"));
-            String tableName = config.getOrDefault("TRANSPORTADORA", "Tabela " + origins.getFirst());
 
             TabelaFreteRequest request = new TabelaFreteRequest();
-            request.setUfOrigem(origins.getFirst());
-            request.setNome(tableName);
+            request.setNome(config.nomeReferencia());
+            request.setVigenciaInicio(config.vigenciaInicio());
+            request.setVigenciaFim(config.vigenciaFim());
             request.setAtiva(true);
-            request.setObjetos(buildObjects(rows, rangeType));
+            LinkedHashSet<String> ufsOrigem = rows.stream()
+                    .map(FreightRuleRow::ufOrigem)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            request.setUfsOrigem(new ArrayList<>(ufsOrigem));
+            request.setObjetos(buildObjects(rows));
             return request;
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
@@ -102,84 +104,100 @@ public class FreightTableExcelParser {
         }
     }
 
-    private Map<String, String> parseConfig(Sheet configSheet) {
-        Map<String, String> config = new LinkedHashMap<>();
-        for (int index = configSheet.getFirstRowNum(); index <= configSheet.getLastRowNum(); index++) {
-            Row row = configSheet.getRow(index);
+    private Sheet requireSheet(Workbook workbook, String name) {
+        Sheet sheet = workbook.getSheet(name);
+        if (sheet == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "O arquivo deve conter a aba '" + name + "'");
+        }
+        return sheet;
+    }
+
+    private ConfigRow parseConfig(Sheet sheet) {
+        Map<String, Integer> headers = ExcelSupport.mapHeaders(sheet.getRow(sheet.getFirstRowNum()));
+        ExcelSupport.requireHeaders(headers, CONFIG_HEADERS);
+
+        for (int index = sheet.getFirstRowNum() + 1; index <= sheet.getLastRowNum(); index++) {
+            Row row = sheet.getRow(index);
             if (ExcelSupport.isBlank(row)) {
                 continue;
             }
-
-            String key = ExcelSupport.text(row, Map.of("KEY", 0), "KEY");
-            String value = ExcelSupport.text(row, Map.of("VALUE", 1), "VALUE");
-            if (key != null && value != null) {
-                config.put(ExcelSupport.normalizeKey(key), value.trim());
-            }
+            return new ConfigRow(
+                    requiredText(row, headers, "NOME_REFERENCIA"),
+                    readDate(row, headers, "VIGENCIA_INICIO"),
+                    readDate(row, headers, "VIGENCIA_FIM")
+            );
         }
-        return config;
+
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A aba Config deve conter uma linha de configuração");
     }
 
-    private List<ObjetoFreteDto> buildObjects(List<FreightRow> rows, String rangeType) {
-        Map<String, List<FreightRow>> rowsByDestination = rows.stream()
-                .sorted(Comparator.comparing(FreightRow::faixaFinal))
-                .collect(Collectors.groupingBy(FreightRow::ufDestino, LinkedHashMap::new, Collectors.toList()));
+    private List<FreightRuleRow> parseRuleSheet(Sheet sheet, String objectType, boolean componentSheet) {
+        Map<String, Integer> headers = ExcelSupport.mapHeaders(sheet.getRow(sheet.getFirstRowNum()));
+        ExcelSupport.requireHeaders(headers, componentSheet ? COMPONENT_HEADERS : RULE_HEADERS);
+
+        List<FreightRuleRow> rows = new ArrayList<>();
+        for (int index = sheet.getFirstRowNum() + 1; index <= sheet.getLastRowNum(); index++) {
+            Row row = sheet.getRow(index);
+            if (ExcelSupport.isBlank(row)) {
+                continue;
+            }
+            rows.add(parseRuleRow(row, headers, objectType, componentSheet));
+        }
+        return rows;
+    }
+
+    private FreightRuleRow parseRuleRow(Row row, Map<String, Integer> headers, String objectType, boolean componentSheet) {
+        String ufOrigem = normalizeUf(requiredText(row, headers, "UF_ORIGEM"));
+        String ufDestino = normalizeUf(requiredText(row, headers, "UF_DESTINO"));
+        String nomeComponente = componentSheet ? requiredText(row, headers, "NOME_COMPONENTE") : "Frete partida";
+        String formaCalculo = normalizeToken(requiredText(row, headers, "FORMA_CALCULO"));
+        String unidadeFaixa = normalizeToken(ExcelSupport.text(row, headers, "UNIDADE_FAIXA"));
+        String unidadeVariante = normalizeToken(requiredText(row, headers, "UNIDADE_VARIANTE"));
+        String tipoCalculo = normalizeToken(requiredText(row, headers, "TIPO_CALCULO"));
+        Double valorCalculo = requiredDecimal(row, headers, "VALOR_DO_CALCULO");
+
+        RegraCalculo regra = new RegraCalculo();
+        regra.setLimiteInicial(ExcelSupport.decimal(row, headers, "LIMITE_INICIAL"));
+        regra.setLimiteFinal(ExcelSupport.decimal(row, headers, "LIMITE_FINAL"));
+        regra.setUnidadeVariante(unidadeVariante);
+        regra.setTipoCalculo(tipoCalculo);
+        regra.setValorCalculo(valorCalculo);
+
+        return new FreightRuleRow(
+                ufOrigem,
+                ufDestino,
+                objectType,
+                nomeComponente.trim(),
+                formaCalculo,
+                unidadeFaixa,
+                regra
+        );
+    }
+
+    private List<ObjetoFreteDto> buildObjects(List<FreightRuleRow> rows) {
+        Map<ObjectKey, List<FreightRuleRow>> rowsByObject = rows.stream()
+                .collect(Collectors.groupingBy(FreightRuleRow::objectKey, LinkedHashMap::new, Collectors.toList()));
 
         List<ObjetoFreteDto> objects = new ArrayList<>();
-        for (Map.Entry<String, List<FreightRow>> entry : rowsByDestination.entrySet()) {
-            String destination = entry.getKey();
-            List<FreightRow> destinationRows = entry.getValue();
+        for (Map.Entry<ObjectKey, List<FreightRuleRow>> entry : rowsByObject.entrySet()) {
+            ObjectKey key = entry.getKey();
+            List<FreightRuleRow> objectRows = entry.getValue();
 
-            objects.add(buildFixedComponent(destination, "PARTIDA", "FRETE_BASE", rangeType, "FAIXA", false, destinationRows,
-                    destinationRows.stream().map(FreightRow::valorFrete).toList(),
-                    destinationRows.stream().map(FreightRow::pesoMinimo).filter(value -> value != null && value > 0).findFirst().orElse(null)));
+            ConfiguracaoCalculoFrete config = new ConfiguracaoCalculoFrete();
+            config.setFormaCalculo(key.formaCalculo());
+            config.setUnidadeFaixa(key.unidadeFaixa());
+            config.setRegras(objectRows.stream().map(FreightRuleRow::regra).toList());
 
-            if (destinationRows.stream().anyMatch(row -> row.gris() > 0)) {
-                objects.add(buildFixedComponent(destination, "COMPONENTE", "GRIS", "VLR_NF", "PERCENTUAL", false, destinationRows,
-                        destinationRows.stream().map(FreightRow::gris).toList(), null));
-            }
-
-            if (destinationRows.stream().anyMatch(row -> row.adValorem() > 0)) {
-                objects.add(buildFixedComponent(destination, "COMPONENTE", "AD_VALOREM", "VLR_NF", "PERCENTUAL", false, destinationRows,
-                        destinationRows.stream().map(FreightRow::adValorem).toList(), null));
-            }
-
-            if (destinationRows.stream().anyMatch(row -> row.pedagio() > 0)) {
-                objects.add(buildFixedComponent(destination, "COMPONENTE", "PEDAGIO", rangeType, "FAIXA", false, destinationRows,
-                        destinationRows.stream().map(FreightRow::pedagio).toList(), null));
-            }
+            ObjetoFreteDto dto = new ObjetoFreteDto();
+            dto.setTipoObjeto(key.tipoObjeto());
+            dto.setNomeComponente(key.nomeComponente());
+            dto.setUfOrigem(key.ufOrigem());
+            dto.setUfDestino(key.ufDestino());
+            dto.setConfigCalculo(config);
+            objects.add(dto);
         }
 
         return objects;
-    }
-
-    private ObjetoFreteDto buildFixedComponent(
-            String destination,
-            String objectType,
-            String componentName,
-            String calculationBase,
-            String calculationType,
-            boolean overBaseFreight,
-            List<FreightRow> rows,
-            List<Double> values,
-            Double minimumValue
-    ) {
-        FaixaCalculo faixaCalculo = new FaixaCalculo();
-        faixaCalculo.setTipoFaixa(calculationBase);
-        faixaCalculo.setFaixasIniciais(rows.stream().map(FreightRow::faixaInicial).toList());
-        faixaCalculo.setFaixas(rows.stream().map(FreightRow::faixaFinal).toList());
-        faixaCalculo.setValores(values);
-        faixaCalculo.setValorExcedente(values.getLast());
-        faixaCalculo.setMinimo(minimumValue);
-
-        ObjetoFreteDto dto = new ObjetoFreteDto();
-        dto.setUf(destination);
-        dto.setTipoObjeto(objectType);
-        dto.setBaseCalculo(calculationBase);
-        dto.setTipoCalculo(calculationType);
-        dto.setNomeComponente(componentName);
-        dto.setSobreFretePartida(overBaseFreight);
-        dto.setFaixas(faixaCalculo);
-        return dto;
     }
 
     private String requiredText(Row row, Map<String, Integer> headers, String header) {
@@ -190,6 +208,38 @@ public class FreightTableExcelParser {
         return value;
     }
 
+    private LocalDate readDate(Row row, Map<String, Integer> headers, String header) {
+        Integer index = headers.get(ExcelSupport.normalizeKey(header));
+        if (index == null) {
+            return null;
+        }
+        Cell cell = row.getCell(index);
+        if (cell == null) {
+            return null;
+        }
+        if (cell.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
+            return cell.getDateCellValue().toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+        }
+
+        String value = ExcelSupport.text(row, headers, header);
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        List<DateTimeFormatter> formatters = List.of(
+                DateTimeFormatter.ISO_LOCAL_DATE,
+                DateTimeFormatter.ofPattern("dd/MM/yyyy"),
+                DateTimeFormatter.ofPattern("d/M/yyyy")
+        );
+        for (DateTimeFormatter formatter : formatters) {
+            try {
+                return LocalDate.parse(value, formatter);
+            } catch (DateTimeParseException ignored) {
+            }
+        }
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Data inválida na coluna " + header);
+    }
+
     private Double requiredDecimal(Row row, Map<String, Integer> headers, String header) {
         Double value = ExcelSupport.decimal(row, headers, header);
         if (value == null) {
@@ -198,28 +248,42 @@ public class FreightTableExcelParser {
         return value;
     }
 
+    private String normalizeToken(String value) {
+        return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+    }
+
     private String normalizeUf(String value) {
-        return value.trim().toUpperCase(Locale.ROOT);
+        return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
     }
 
-    private String normalizeRangeType(String value) {
-        return "VALOR".equalsIgnoreCase(value) ? "VLR_NF" : "PESO";
+    private record ConfigRow(
+            String nomeReferencia,
+            LocalDate vigenciaInicio,
+            LocalDate vigenciaFim
+    ) {
     }
 
-    private double zeroIfNull(Double value) {
-        return value != null ? value : 0.0;
-    }
-
-    private record FreightRow(
+    private record FreightRuleRow(
             String ufOrigem,
             String ufDestino,
-            Double faixaInicial,
-            Double faixaFinal,
-            Double valorFrete,
-            Double pesoMinimo,
-            Double gris,
-            Double adValorem,
-            Double pedagio
+            String tipoObjeto,
+            String nomeComponente,
+            String formaCalculo,
+            String unidadeFaixa,
+            RegraCalculo regra
+    ) {
+        private ObjectKey objectKey() {
+            return new ObjectKey(ufOrigem, ufDestino, tipoObjeto, nomeComponente, formaCalculo, unidadeFaixa);
+        }
+    }
+
+    private record ObjectKey(
+            String ufOrigem,
+            String ufDestino,
+            String tipoObjeto,
+            String nomeComponente,
+            String formaCalculo,
+            String unidadeFaixa
     ) {
     }
 }
