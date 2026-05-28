@@ -4,14 +4,14 @@ services:
     container_name: tma-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: TMA
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    tmpfs:
+      - /var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d TMA"]
       interval: 10s
@@ -68,6 +68,3 @@ services:
       SPRING_API_BASE_URL: http://app:8080
     depends_on:
       - app
-
-volumes:
-  postgres_data:
