@@ -180,6 +180,42 @@ body {
     padding: 1rem;
 }
 
+.prediction-metrics {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.prediction-metric,
+.prediction-factor {
+    align-items: flex-start;
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(20, 33, 61, 0.08);
+    border-radius: 0.85rem;
+    display: flex;
+    gap: 0.75rem;
+    justify-content: space-between;
+    padding: 0.85rem 0.95rem;
+}
+
+.prediction-metric span,
+.prediction-factor span {
+    color: var(--tma-muted);
+    font-size: 0.85rem;
+}
+
+.prediction-metric strong,
+.prediction-factor strong {
+    color: var(--tma-navy);
+    font-size: 0.92rem;
+    max-width: 60%;
+    text-align: right;
+}
+
+.prediction-factors {
+    border-top: 1px solid rgba(20, 33, 61, 0.1);
+    padding-top: 1rem;
+}
+
 .text-navy {
     color: var(--tma-navy);
 }

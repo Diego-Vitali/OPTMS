@@ -405,9 +405,32 @@ async def root():
 
 @app.get("/health")
 async def health():
+    status_db = "desconectado"
+    
+    # 1. Testa a conexão com o PostgreSQL (Vital para a fase de descoberta)
+    try:
+        with db_engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+            status_db = "conectado"
+    except Exception as e:
+        logger.error(f"Erro no Health Check (Banco de Dados): {e}")
+        status_db = "erro_de_conexao"
+
+    # 2. Verifica o cofre de modelos na RAM
+    global modelos_em_memoria
+    qtd_modelos = len(modelos_em_memoria)
+    modelos_ativos = list(modelos_em_memoria.keys())
+
+    # Se o banco estiver fora, a API está 'degradada', mesmo rodando.
+    status_geral = "ok" if status_db == "conectado" else "degradado"
+
     return {
-        "status": "ok",
-        "modelo_carregado": mlops_system is not None,
+        "status": status_geral,
+        "database": status_db,
+        "metricas_memoria": {
+            "quantidade_modelos_carregados": qtd_modelos,
+            "artefatos_na_ram": modelos_ativos
+        }
     }
 
 

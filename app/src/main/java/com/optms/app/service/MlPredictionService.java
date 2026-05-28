@@ -2,6 +2,7 @@ package com.optms.app.service;
 
 import com.optms.app.dto.MlPredictRequest;
 import com.optms.app.dto.MlPredictResponse;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
@@ -27,16 +28,19 @@ public class MlPredictionService {
     public MlPredictResponse predict(MlPredictRequest request) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<Map<String, Object>> requestEntity = new HttpEntity<>(Map.of(
-                "Peso total bruto", request.getPesoTotalBruto(),
-                "Metro cúbico", request.getMetroCubico(),
-                "Valor NF", request.getValorNF(),
-                "Volume NF", request.getVolumeNF(),
-                "Tipo de frete NF", request.getTipoFreteNF(),
-                "Via de transporte", request.getViaTransporte(),
-                "UF emitente NF", request.getUfEmitenteNF(),
-                "UF destinatário NF", request.getUfDestinatarioNF()
-        ), headers);
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("company_id", request.getCompanyId());
+        payload.put("Peso total bruto", request.getPesoTotalBruto());
+        payload.put("Metro cúbico", request.getMetroCubico());
+        payload.put("Valor NF", request.getValorNF());
+        payload.put("Volume NF", request.getVolumeNF());
+        payload.put("Tipo de frete NF", request.getTipoFreteNF());
+        payload.put("Via de transporte", request.getViaTransporte());
+        payload.put("UF emitente NF", request.getUfEmitenteNF());
+        payload.put("UF destinatário NF", request.getUfDestinatarioNF());
+
+        HttpEntity<Map<String, Object>> requestEntity = new HttpEntity<>(payload, headers);
 
         try {
             MlPredictResponse response = restTemplate.postForObject(

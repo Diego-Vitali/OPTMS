@@ -56,3 +56,47 @@ VALUES
 (1, 45.00, 0.35, 4200.00, 1, 'CIF', 'Aéreo', 'SC', 'BA', 1),
 (1, 120.00, 1.10, 18000.00, 5, 'CIF', 'Aéreo', 'SP', 'RJ', 1),
 (1, 90.00, 0.80, 11000.00, 4, 'FOB', 'Aéreo', 'SP', 'RJ', 1);
+
+
+-- Cria a Empresa 2
+INSERT INTO public.companies (id, name, social_name, document, createdAt, active, apikey)
+VALUES (2, 'Expresso Sul S.A.', 'EXPRESSO SUL LTDA', '11122233300099', CURRENT_TIMESTAMP, TRUE, 'APIKEY_SUL_MLOPS_2026');
+
+-- Cria o Lote de Treino da Empresa 2 (input_id = 2)
+INSERT INTO public.lotes_treino (id, company_id, descricao, criado_em)
+VALUES (2, 2, 'Massa histórica Rota Sul Expressa (Prazos Curtos)', CURRENT_TIMESTAMP);
+
+-- Insere 25 registros operacionais para a Empresa 2 (Target: 1 a 3 dias no máximo)
+INSERT INTO public.dados_treino_operacional 
+(input_id, peso_total_bruto, metro_cubico, valor_nf, volume_nf, tipo_de_frete_nf, via_de_transporte, uf_emitente_nf, uf_destinatario_nf, transit_time_dias)
+VALUES
+-- PR para SC (1 a 2 dias)
+(2, 800.00, 6.00, 25000.00, 15, 'CIF', 'Rodoviário', 'PR', 'SC', 1),
+(2, 850.00, 6.20, 26000.00, 16, 'FOB', 'Rodoviário', 'PR', 'SC', 2),
+(2, 790.00, 5.90, 24500.00, 14, 'CIF', 'Rodoviário', 'PR', 'SC', 1),
+(2, 900.00, 6.50, 28000.00, 18, 'FOB', 'Rodoviário', 'PR', 'SC', 2),
+(2, 820.00, 6.10, 25500.00, 15, 'CIF', 'Rodoviário', 'PR', 'SC', 1),
+(2, 880.00, 6.40, 27500.00, 17, 'FOB', 'Rodoviário', 'PR', 'SC', 2),
+(2, 810.00, 6.05, 25200.00, 15, 'CIF', 'Rodoviário', 'PR', 'SC', 1),
+(2, 860.00, 6.30, 26800.00, 16, 'CIF', 'Rodoviário', 'PR', 'SC', 2),
+
+-- SC para RS (2 a 3 dias)
+(2, 1200.00, 9.00, 40000.00, 25, 'CIF', 'Rodoviário', 'SC', 'RS', 2),
+(2, 1250.00, 9.20, 42000.00, 26, 'FOB', 'Rodoviário', 'SC', 'RS', 3),
+(2, 1180.00, 8.80, 39000.00, 24, 'CIF', 'Rodoviário', 'SC', 'RS', 2),
+(2, 1300.00, 9.50, 45000.00, 28, 'FOB', 'Rodoviário', 'SC', 'RS', 3),
+(2, 1220.00, 9.10, 41000.00, 25, 'CIF', 'Rodoviário', 'SC', 'RS', 2),
+(2, 1280.00, 9.40, 44000.00, 27, 'FOB', 'Rodoviário', 'SC', 'RS', 3),
+(2, 1190.00, 8.90, 39500.00, 24, 'CIF', 'Rodoviário', 'SC', 'RS', 2),
+(2, 1260.00, 9.30, 43000.00, 26, 'CIF', 'Rodoviário', 'SC', 'RS', 3),
+
+-- Entregas Aéreas Expressas Regionais (1 dia cravado)
+(2, 50.00, 0.50, 8000.00, 3, 'CIF', 'Aéreo', 'PR', 'RS', 1),
+(2, 55.00, 0.55, 8500.00, 4, 'FOB', 'Aéreo', 'PR', 'RS', 1),
+(2, 48.00, 0.48, 7800.00, 3, 'CIF', 'Aéreo', 'PR', 'RS', 1),
+(2, 60.00, 0.60, 9000.00, 5, 'FOB', 'Aéreo', 'PR', 'RS', 1),
+(2, 52.00, 0.52, 8200.00, 4, 'CIF', 'Aéreo', 'PR', 'RS', 1),
+(2, 58.00, 0.58, 8800.00, 5, 'FOB', 'Aéreo', 'PR', 'RS', 1),
+(2, 49.00, 0.49, 7900.00, 3, 'CIF', 'Aéreo', 'PR', 'RS', 1),
+(2, 62.00, 0.62, 9200.00, 5, 'CIF', 'Aéreo', 'PR', 'RS', 1),
+(2, 53.00, 0.53, 8300.00, 4, 'FOB', 'Aéreo', 'PR', 'RS', 1);
