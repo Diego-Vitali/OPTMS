@@ -7,6 +7,7 @@ from typing import List, Dict, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from logger import get_logger
 import joblib
+import uuid
 
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer, make_column_selector
@@ -15,6 +16,7 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.ensemble import RandomForestRegressor, IsolationForest
 from sklearn.exceptions import InconsistentVersionWarning
 from sklearn.model_selection import RandomizedSearchCV, train_test_split
+from sqlalchemy import create_engine, text
 import itertools
 
 try:
@@ -23,6 +25,15 @@ try:
 except Exception as exc:
     shap = None
     SHAP_IMPORT_ERROR = exc
+
+DB_USER = os.getenv("POSTGRES_USER", "postgres")
+DB_PASS = os.getenv("POSTGRES_PASSWORD", "postgres")
+DB_HOST = os.getenv("DB_HOST", "tma-postgres")   
+DB_PORT = os.getenv("DB_PORT", "5432")
+DB_DB   = os.getenv("POSTGRES_DB", "TMA")
+
+DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_DB}"
+db_engine = create_engine(DATABASE_URL)
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -74,16 +85,15 @@ class FreightBase(BaseModel):
 
 class FreightInput(FreightBase):
     """Payload para a rota /predict/ (Não tem transit time)"""
-    pass
+    company_id: int
 
 class FreightRetrainRecord(FreightBase):
     """Payload para uma única viagem histórica no /retrain/"""
     transit_time: int = Field(..., gt=0, alias="transit time", description="O tempo de entrega tem que ser de pelo menos 1 dia")
 
 class RetrainRequest(BaseModel):
-    """Payload principal da rota /retrain/"""
-    # Regra: Garante que o Java nunca mande menos de 10 registros na própria requisição
-    records: List[Dict[str, Any]]
+    company_id: int
+    input_id: int
 
 # ---
 class LogisticsFeatureEngineer(BaseEstimator, TransformerMixin):
@@ -360,7 +370,7 @@ def load_artifacts(filepath: str):
             )
     return None
 
-mlops_system = load_artifacts(ARTIFACTS_FILE)
+modelos_em_memoria = {}
 
 # ── Funções Auxiliares ─────────────────────────────────────────────────────
 def validate_and_clean_data(df: pd.DataFrame, required_cols: list) -> None:
@@ -403,12 +413,41 @@ async def health():
 
 @app.post("/predict/")
 async def predict(data: FreightInput):
-    global mlops_system
-    if mlops_system is None:
-        return {"error": "Modelo não carregado. Faça um POST em /retrain/ primeiro."}
-    
     try:
-        # 1. TENTA O CAMINHO ULTRA-RÁPIDO (CACHE O(1))
+        # =====================================================================
+        # FASE 1: DESCOBERTA E ROTEAMENTO MULTI-TENANT
+        # =====================================================================
+        query = text("""
+            SELECT artifacts_id 
+            FROM public.catalogo_artefatos_ml 
+            WHERE company_id = :cid AND ativo = TRUE 
+            LIMIT 1
+        """)
+        
+        with db_engine.connect() as conn:
+            resultado = conn.execute(query, {"cid": data.company_id}).fetchone()
+            
+        if not resultado:
+            return {"error": f"Nenhum modelo ativo encontrado para a company_id {data.company_id}. Solicite o retreino primeiro."}
+            
+        artifacts_id = resultado[0]
+        
+        # Lazy Loading: Só vai no disco rígido se o modelo não estiver na RAM
+        global modelos_em_memoria
+        if artifacts_id not in modelos_em_memoria:
+            caminho_arquivo = f"api_artifacts/{artifacts_id}"
+            if not os.path.exists(caminho_arquivo):
+                return {"error": f"Arquivo físico '{artifacts_id}' corrompido ou não encontrado no servidor."}
+            
+            logger.info(f"Carregando artefato {artifacts_id} para a memória RAM...")
+            modelos_em_memoria[artifacts_id] = joblib.load(caminho_arquivo)
+            
+        # Puxa o ecossistema exato do cliente logado
+        mlops_system = modelos_em_memoria[artifacts_id]
+
+        # =====================================================================
+        # FASE 2: TENTATIVA DE RESPOSTA INSTANTÂNEA (CACHE O(1))
+        # =====================================================================
         if "prediction_cache" in mlops_system:
             chave_busca = mapear_registro_para_chave(
                 peso=data.Peso_total_bruto,
@@ -423,7 +462,9 @@ async def predict(data: FreightInput):
             if chave_busca in cache_ram:
                 dossie_calculado = cache_ram[chave_busca]
                 return {
-                    "engine": "OPTMS_Cache_Serving_O(1)",
+                    "engine": "LUDS_Cache_Serving_O(1)",
+                    "company_id": data.company_id,
+                    "artifacts_id": artifacts_id,
                     "chave_hash_consultada": chave_busca,
                     **dossie_calculado
                 }
@@ -431,44 +472,34 @@ async def predict(data: FreightInput):
                 logger.warning(f"Cache Miss para a chave: {chave_busca}. Acionando fallback on-the-fly.")
 
         # =====================================================================
-        # 2. CAMINHO DE FALLBACK ON-THE-FLY (O CÓDIGO DA TUA EQUIPE)
-        # Se chegou aqui, é porque não tem cache ou a chave não existe.
+        # FASE 3: FALLBACK ON-THE-FLY (CÁLCULO SOB DEMANDA)
         # =====================================================================
-        input_dict = data.model_dump(by_alias=False)
+        input_dict = data.model_dump(by_alias=False, exclude={"company_id"}) # Exclui o company_id pois ele não entra na matemática da IA
         df = pd.DataFrame([input_dict])
         
-        # --- APLICA A TRANSFORMAÇÃO PRIMEIRO ---
         X_transformado = mlops_system["transformadores"].transform(df)
         
-        # AVALIAÇÃO DE RISCO (Isolation Forest lê os dados transformados)
         status_anomalia = mlops_system["cao_de_guarda"].predict(X_transformado)[0]
         
         if status_anomalia == -1:
             alerta_risco = "ALTO: Frete atípico. Alargando janela de SLA."
-            alpha_req = 0.05 # 95% de confiança (Intervalo mais largo)
+            alpha_req = 0.05 
         else:
             alerta_risco = "BAIXO: Frete padrão."
-            alpha_req = 0.10 # 90% de confiança (Intervalo padrão)
+            alpha_req = 0.10 
             
-        # PREVISÃO E SLA (Custom Conformal)
         predicao_media, lim_inf, lim_sup = mlops_system["conformal_model"].predict(df, alpha=alpha_req)
         
         tma_estimado = float(np.round(predicao_media[0], 1))
-        
-        # Garantimos que o prazo mínimo nunca será negativo ou zero
         tma_min = max(1, int(np.floor(lim_inf[0]))) 
         tma_max = int(np.ceil(lim_sup[0]))
 
         top_fatores = []
         explainer_shap = mlops_system.get("explainer_shap")
 
-        # Mantém a API operacional mesmo quando SHAP não estiver disponível.
         if explainer_shap is not None:
             shap_vals = explainer_shap.shap_values(X_transformado)
-
-            # Obtém os nomes das colunas após o preprocessor (OneHot gera colunas novas)
             nomes_cols = mlops_system["transformadores"].get_feature_names_out()
-
             impactos = list(zip(nomes_cols, shap_vals[0]))
             impactos_ordenados = sorted(impactos, key=lambda x: abs(x[1]), reverse=True)
 
@@ -480,7 +511,9 @@ async def predict(data: FreightInput):
             top_fatores = [{"variavel": "Explicação Indisponível (Ambiente sem SHAP)", "impacto_dias": 0.0}]
         
         return {
-            "engine": "On_Demand_Computation", # Flag para mostrar na banca que o fallback funcionou
+            "engine": "On_Demand_Computation",
+            "company_id": data.company_id,
+            "artifacts_id": artifacts_id,
             "risco": alerta_risco,
             "tma_estimado_dias": tma_estimado,
             "intervalo_sla_dias": [tma_min, tma_max],
@@ -492,56 +525,88 @@ async def predict(data: FreightInput):
         return {"error": str(e)}
 
 @app.post("/retrain/")
-async def retrain(req: RetrainRequest):
-    global mlops_system
-    valid_records = []
-    invalid_count = 0
-    
-    logger.info(f"Recebidos {len(req.records)} registros para retreino.")
-    df_raw = pd.DataFrame(req.records)
-    required = RAW_COLS + ["transit time"]
-
+async def retrain_model(request: RetrainRequest):
     try:
-        validate_and_clean_data(df_raw, required)
-    except ValueError as e:
-        return {"error": str(e)}
-
-    for r in req.records:
-        try:
-            validated_row = FreightRetrainRecord(**r)
-            valid_records.append(validated_row.model_dump(by_alias=False))
-        except Exception:
-            invalid_count += 1
-
-    if len(valid_records) < 50: # Aumentado levemente para comportar o split do MAPIE
-        return {"error": f"Dados insuficientes. Temos {len(valid_records)} linhas saudáveis (mínimo exigido é 50)."}
-
-    try:
-        df = pd.DataFrame(valid_records)
-        df = remove_outliers_iqr(df, "transit_time")
-
-        X = df.drop(columns=["transit_time"])
-        y = df["transit_time"]
-
-        artefatos_gerados, metrics = optimize_and_train(X, y)
+        logger.info(f"Iniciando retreino para Company: {request.company_id} | Lote de Entrada: {request.input_id}")
         
-        save_artifacts(artefatos_gerados, ARTIFACTS_FILE)
-        mlops_system = artefatos_gerados
-
-        return {
-            "status": "ok",
-            "n_registros_treino": len(X),
-            "linhas_descartadas": invalid_count,
-            "mae_kfold": metrics["mae_kfold"],
-            "rmse_kfold": metrics["rmse_kfold"],
-            "r2_kfold": metrics["r2_kfold"],
-            "info_modelo": {
-                "usou_feature_engineering": metrics["usou_feature_engineering"],
-                "mensagem": "Pipeline atualizado. Isolation Forest, MAPIE e SHAP calibrados com sucesso."
-            }
+        # 1. Busca Segura no PostgreSQL (Evita SQL Injection)
+        query = text("SELECT * FROM public.dados_treino_operacional WHERE input_id = :input_id")
+        
+        # O Pandas é capaz de ler a query SQL e virar uma tabela na mesma hora!
+        df = pd.read_sql(query, db_engine, params={"input_id": request.input_id})
+        
+        if df.empty:
+            return {"error": f"Nenhum dado operacional encontrado para o input_id {request.input_id}"}
+            
+        mapeamento_banco_para_ml = {
+            "peso_total_bruto": "Peso_total_bruto",
+            "metro_cubico": "Metro_cubico",
+            "valor_nf": "Valor_NF",
+            "volume_nf": "Volume_NF",
+            "tipo_de_frete_nf": "Tipo_de_frete_NF",
+            "via_de_transporte": "Via_de_transporte",
+            "uf_emitente_nf": "UF_emitente_NF",
+            "uf_destinatario_nf": "UF_destinatario_NF"
+            # O transit_time_dias já está minúsculo no código Python, então não precisa mapear
         }
+        df = df.rename(columns=mapeamento_banco_para_ml)
+
+        # 2. Separação de Variáveis (Dropamos as colunas de ID do banco que não servem para a IA)
+        cols_to_drop = ["id", "input_id", "transit_time_dias"]
+        X = df.drop(columns=cols_to_drop)
+        y = df["transit_time_dias"]
+        
+        # 3. Dispara a esteira do Cão de Guarda, AutoML, Conformal e SHAP
+        artefatos, metrics = optimize_and_train(X, y)
+        
+        # 4. Gera o ID único do Artefato e salva o arquivo físico
+        artifacts_id = f"modelo_cia{request.company_id}_{uuid.uuid4().hex[:8]}.pkl"
+        os.makedirs("api_artifacts", exist_ok=True)
+        caminho_arquivo = f"api_artifacts/{artifacts_id}"
+        joblib.dump(artefatos, caminho_arquivo)
+        
+        # Atualiza o modelo carregado na memória global da API para resposta imediata
+        global mlops_system
+        mlops_system = artefatos
+        
+        # 5. O CATÁLOGO (Model Registry e Data Lineage)
+        with db_engine.connect() as conn:
+            # A. Desativa qualquer modelo antigo dessa mesma empresa
+            conn.execute(
+                text("UPDATE public.catalogo_artefatos_ml SET ativo = FALSE WHERE company_id = :cid"),
+                {"cid": request.company_id}
+            )
+            
+            # B. Insere o novo modelo ativado junto com as suas métricas e ancestralidade
+            conn.execute(
+                text("""
+                    INSERT INTO public.catalogo_artefatos_ml 
+                    (artifacts_id, company_id, input_id, mae_kfold, rmse_kfold, r2_kfold, usou_feature_engineering, ativo)
+                    VALUES (:art_id, :cid, :iid, :mae, :rmse, :r2, :fe, TRUE)
+                """),
+                {
+                    "art_id": artifacts_id,
+                    "cid": request.company_id,
+                    "iid": request.input_id,
+                    "mae": metrics["mae_kfold"],
+                    "rmse": metrics["rmse_kfold"],
+                    "r2": metrics["r2_kfold"],
+                    "fe": metrics["usou_feature_engineering"]
+                }
+            )
+            conn.commit() # Essencial para gravar de fato no Postgres
+            
+        logger.info(f"Retreino concluído. Artefato salvo: {artifacts_id}")
+        
+        return {
+            "status": "sucesso",
+            "message": "Modelo treinado, catalogado e ativado no sistema MLOps.",
+            "artifacts_id": artifacts_id,
+            "metrics": metrics
+        }
+        
     except Exception as e:
-        logger.exception("Erro fatal no retreino.")
+        logger.exception("Erro crítico durante o retreino via Banco de Dados.")
         return {"error": str(e)}
 
 if __name__ == "__main__":
