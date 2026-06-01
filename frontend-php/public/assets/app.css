@@ -57,7 +57,13 @@ body {
 
 .app-navbar .nav-link {
     color: rgba(255, 255, 255, 0.86);
+    font-size: 0.92rem;
     font-weight: 500;
+    white-space: nowrap;
+}
+
+.app-navbar .container {
+    max-width: 1320px;
 }
 
 .hero-shell,
@@ -226,6 +232,39 @@ body {
     color: var(--tma-navy);
     font-size: 0.86rem;
     text-transform: uppercase;
+}
+
+.metrics-help {
+    cursor: help;
+    display: inline-flex;
+    position: relative;
+}
+
+.metrics-help-box {
+    background: var(--tma-navy);
+    border-radius: 0.5rem;
+    bottom: calc(100% + 0.55rem);
+    box-shadow: 0 16px 34px rgba(20, 33, 61, 0.22);
+    color: var(--tma-white);
+    font-size: 0.8rem;
+    font-weight: 500;
+    left: 0;
+    line-height: 1.35;
+    opacity: 0;
+    padding: 0.75rem 0.85rem;
+    pointer-events: none;
+    position: absolute;
+    text-transform: none;
+    transform: translateY(0.25rem);
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    width: min(20rem, 72vw);
+    z-index: 20;
+}
+
+.metrics-help:hover .metrics-help-box,
+.metrics-help:focus-within .metrics-help-box {
+    opacity: 1;
+    transform: translateY(0);
 }
 
 .list-spec {

@@ -35,11 +35,19 @@ public class CotacaoApiKeyFilter extends OncePerRequestFilter {
             return true;
         }
 
-        String path = request.getRequestURI();
+        String path = normalizedPath(request);
         boolean supportsExternalApiKey = "/api/cotacoes".equals(path)
-                || "/api/ml/predict".equals(path);
+                || "/api/previsao-entrega".equals(path);
 
         return !supportsExternalApiKey || !"POST".equalsIgnoreCase(request.getMethod());
+    }
+
+    private String normalizedPath(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        while (path.length() > 1 && path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
+        return path;
     }
 
     @Override
@@ -66,14 +74,14 @@ public class CotacaoApiKeyFilter extends OncePerRequestFilter {
         ExternalApiKey externalApiKey = externalApiKeyRepository.findByApikeyAndActiveTrue(apiKey).orElse(null);
         if (externalApiKey == null) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write("API Key inválida para cotação");
+            response.getWriter().write("Chave de acesso inválida");
             return;
         }
 
         Company externalCompany = companyRepository.findByIdAndActiveTrue(externalApiKey.getCompanyId()).orElse(null);
         if (externalCompany == null) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write("Company da API key externa está inativa");
+            response.getWriter().write("Chave de acesso inativa");
             return;
         }
 

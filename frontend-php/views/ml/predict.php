@@ -4,17 +4,15 @@ $result = $result ?? [];
 $predictedDays = $result['tma_estimado_dias'] ?? null;
 $slaInterval = $result['intervalo_sla_dias'] ?? [];
 $risk = $result['risco'] ?? null;
-$engine = $result['engine'] ?? null;
-$artifactsId = $result['artifacts_id'] ?? null;
-$companyId = $result['company_id'] ?? null;
 $factors = $result['top_fatores_explicacao'] ?? [];
+$ufs = brazilian_ufs();
 ?>
 
 <section class="row g-4">
     <div class="col-lg-7">
         <div class="panel-card p-4 p-lg-5">
-            <span class="hero-badge mb-3">Machine Learning</span>
-            <h1 class="section-title h2 mb-3">Previsão de transit time</h1>
+            <span class="hero-badge mb-3">Previsão</span>
+            <h1 class="section-title h2 mb-3">Previsão de prazo</h1>
             <p class="text-secondary mb-4">
                 Preencha os dados do embarque para estimar o prazo de entrega com o modelo treinado.
             </p>
@@ -28,12 +26,6 @@ $factors = $result['top_fatores_explicacao'] ?? [];
             <?php endif; ?>
 
             <form method="post" action="/previsoes" class="row g-3">
-                <?php if (!empty($isAdmin)): ?>
-                    <div class="col-12">
-                        <label class="form-label" for="company_id">Company ID</label>
-                        <input class="form-control form-control-lg" id="company_id" name="company_id" type="number" min="1" required value="<?= e($form['company_id'] ?? '') ?>">
-                    </div>
-                <?php endif; ?>
                 <div class="col-md-6">
                     <label class="form-label" for="peso_total_bruto">Peso total bruto</label>
                     <input class="form-control form-control-lg" id="peso_total_bruto" name="peso_total_bruto" type="number" step="0.01" min="0.01" required value="<?= e($form['peso_total_bruto'] ?? '') ?>">
@@ -68,11 +60,25 @@ $factors = $result['top_fatores_explicacao'] ?? [];
                 </div>
                 <div class="col-md-6">
                     <label class="form-label" for="uf_emitente_nf">UF emitente</label>
-                    <input class="form-control form-control-lg" id="uf_emitente_nf" name="uf_emitente_nf" type="text" maxlength="2" required value="<?= e($form['uf_emitente_nf'] ?? '') ?>">
+                    <select class="form-select form-select-lg" id="uf_emitente_nf" name="uf_emitente_nf" required>
+                        <option value="">Selecione</option>
+                        <?php foreach ($ufs as $uf => $stateName): ?>
+                            <option value="<?= e($uf) ?>" <?= normalize_brazilian_uf($form['uf_emitente_nf'] ?? '') === $uf ? 'selected' : '' ?>>
+                                <?= e($uf . ' - ' . $stateName) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
                 <div class="col-md-6">
                     <label class="form-label" for="uf_destinatario_nf">UF destinatário</label>
-                    <input class="form-control form-control-lg" id="uf_destinatario_nf" name="uf_destinatario_nf" type="text" maxlength="2" required value="<?= e($form['uf_destinatario_nf'] ?? '') ?>">
+                    <select class="form-select form-select-lg" id="uf_destinatario_nf" name="uf_destinatario_nf" required>
+                        <option value="">Selecione</option>
+                        <?php foreach ($ufs as $uf => $stateName): ?>
+                            <option value="<?= e($uf) ?>" <?= normalize_brazilian_uf($form['uf_destinatario_nf'] ?? '') === $uf ? 'selected' : '' ?>>
+                                <?= e($uf . ' - ' . $stateName) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
                 <div class="col-12 d-flex gap-3">
                     <button class="btn btn-primary btn-lg px-4" type="submit">Prever prazo</button>
@@ -95,7 +101,7 @@ $factors = $result['top_fatores_explicacao'] ?? [];
                     <div class="prediction-metrics">
                         <?php if (is_array($slaInterval) && count($slaInterval) >= 2): ?>
                             <div class="prediction-metric">
-                                <span>SLA din&acirc;mico</span>
+                                <span>Intervalo estimado</span>
                                 <strong><?= e((string) $slaInterval[0]) ?>-<?= e((string) $slaInterval[1]) ?> dias</strong>
                             </div>
                         <?php endif; ?>
@@ -107,19 +113,6 @@ $factors = $result['top_fatores_explicacao'] ?? [];
                             </div>
                         <?php endif; ?>
 
-                        <?php if (!empty($engine)): ?>
-                            <div class="prediction-metric">
-                                <span>Motor</span>
-                                <strong><?= e((string) $engine) ?></strong>
-                            </div>
-                        <?php endif; ?>
-
-                        <?php if (!empty($companyId)): ?>
-                            <div class="prediction-metric">
-                                <span>Company</span>
-                                <strong>#<?= e((string) $companyId) ?></strong>
-                            </div>
-                        <?php endif; ?>
                     </div>
 
                     <?php if (is_array($factors) && !empty($factors)): ?>
@@ -140,9 +133,6 @@ $factors = $result['top_fatores_explicacao'] ?? [];
                         </div>
                     <?php endif; ?>
 
-                    <?php if (!empty($artifactsId)): ?>
-                        <p class="footer-note mt-4 mb-0">Artefato: <?= e((string) $artifactsId) ?></p>
-                    <?php endif; ?>
                 </div>
             <?php else: ?>
                 <p class="list-spec mb-0">O modelo retornará a estimativa em dias com base nas características logísticas e fiscais do embarque.</p>

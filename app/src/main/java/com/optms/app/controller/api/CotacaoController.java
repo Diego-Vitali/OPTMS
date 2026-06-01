@@ -5,6 +5,8 @@ import com.optms.app.dto.CotacaoRequest;
 import com.optms.app.dto.CotacaoResponse;
 import com.optms.app.service.CotacaoService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -32,7 +34,13 @@ public class CotacaoController {
             Localiza a tabela de frete ativa para a UF de origem, calcula o frete base (PARTIDA)
             e soma os encargos adicionais (COMPONENTEs) aplicáveis à UF de destino.
             Retorna o detalhamento por componente e o valor total.
-            """
+            """,
+        parameters = @Parameter(
+            name = "X-API-KEY",
+            in = ParameterIn.HEADER,
+            required = true,
+            description = "API key interna ou API key externa ativa associada à empresa"
+        )
     )
     @ApiResponse(
         responseCode = "200",

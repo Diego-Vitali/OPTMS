@@ -20,6 +20,55 @@ function e(?string $value): string
     return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 }
 
+function brazilian_ufs(): array
+{
+    return [
+        'AC' => 'Acre',
+        'AL' => 'Alagoas',
+        'AP' => 'Amapá',
+        'AM' => 'Amazonas',
+        'BA' => 'Bahia',
+        'CE' => 'Ceará',
+        'DF' => 'Distrito Federal',
+        'ES' => 'Espírito Santo',
+        'GO' => 'Goiás',
+        'MA' => 'Maranhão',
+        'MT' => 'Mato Grosso',
+        'MS' => 'Mato Grosso do Sul',
+        'MG' => 'Minas Gerais',
+        'PA' => 'Pará',
+        'PB' => 'Paraíba',
+        'PR' => 'Paraná',
+        'PE' => 'Pernambuco',
+        'PI' => 'Piauí',
+        'RJ' => 'Rio de Janeiro',
+        'RN' => 'Rio Grande do Norte',
+        'RS' => 'Rio Grande do Sul',
+        'RO' => 'Rondônia',
+        'RR' => 'Roraima',
+        'SC' => 'Santa Catarina',
+        'SP' => 'São Paulo',
+        'SE' => 'Sergipe',
+        'TO' => 'Tocantins',
+    ];
+}
+
+function normalize_brazilian_uf(?string $value): string
+{
+    $uf = strtoupper(trim((string) $value));
+    return array_key_exists($uf, brazilian_ufs()) ? $uf : '';
+}
+
+function validate_brazilian_ufs(array $form, array $fields): ?string
+{
+    foreach ($fields as $field) {
+        if (normalize_brazilian_uf($form[$field] ?? '') === '') {
+            return 'Selecione uma UF brasileira válida.';
+        }
+    }
+    return null;
+}
+
 function asset_path(string $path): string
 {
     return '/assets/' . ltrim($path, '/');
@@ -32,7 +81,7 @@ function app_name(): string
 
 function app_slogan(): string
 {
-    return 'OPTMS: A tecnologia que otimiza suas entregas e conecta seu frete ao mercado.';
+    return 'Gestão de fretes, cotações e previsões de entrega em um só lugar.';
 }
 
 function flash(string $type, string $message): void
@@ -137,7 +186,7 @@ function guard_authenticated_api_exception(App\Api\ApiException $exception): voi
 {
     if ($exception->getStatusCode() === 401 && should_logout_from_api_exception($exception)) {
         logout_user_session();
-        flash('danger', 'Sua sessão expirou ou a API key deixou de ser válida.');
+        flash('danger', 'Sua sessão expirou ou a chave de acesso deixou de ser válida.');
         redirect('/login');
     }
 }
@@ -149,7 +198,8 @@ function should_logout_from_api_exception(App\Api\ApiException $exception): bool
         return false;
     }
 
-    return str_contains($message, 'api key da company')
+    return str_contains($message, 'chave de acesso')
+        || str_contains($message, 'api key da company')
         || str_contains($message, 'company api key')
         || str_contains($message, 'sessão expirou')
         || str_contains($message, 'session expired');

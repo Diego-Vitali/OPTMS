@@ -25,7 +25,7 @@ public class CompanyApiKeyFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        String path = request.getRequestURI();
+        String path = normalizedPath(request);
 
         if (!path.startsWith("/api/")) {
             return true;
@@ -47,11 +47,19 @@ public class CompanyApiKeyFilter extends OncePerRequestFilter {
             return true;
         }
 
-        if ("/api/ml/predict".equals(path) && "POST".equalsIgnoreCase(request.getMethod())) {
+        if ("/api/previsao-entrega".equals(path) && "POST".equalsIgnoreCase(request.getMethod())) {
             return true;
         }
 
         return "/api/empresas".equals(path) && "POST".equalsIgnoreCase(request.getMethod());
+    }
+
+    private String normalizedPath(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        while (path.length() > 1 && path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
+        return path;
     }
 
     @Override
@@ -64,7 +72,7 @@ public class CompanyApiKeyFilter extends OncePerRequestFilter {
 
         if (apiKey == null || apiKey.isBlank()) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write("API Key da company não informada");
+            response.getWriter().write("Chave de acesso não informada");
             return;
         }
 
@@ -73,7 +81,7 @@ public class CompanyApiKeyFilter extends OncePerRequestFilter {
 
         if (company == null) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write("API Key da company inválida");
+            response.getWriter().write("Chave de acesso inválida");
             return;
         }
 

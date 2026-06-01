@@ -32,7 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
-@RequestMapping("/api/ml")
+@RequestMapping("/api")
 @RequiredArgsConstructor
 @Tag(name = "Previsões", description = "Previsão de prazo de entrega por modelo de Machine Learning")
 public class MlController {
@@ -40,7 +40,7 @@ public class MlController {
     private final MlPredictionService mlPredictionService;
     private final MlRetrainService mlRetrainService;
 
-    @GetMapping("/retrain/jobs")
+    @GetMapping("/ml/retrain/jobs")
     public ResponseEntity<List<Map<String, Object>>> listTrainingJobs(HttpServletRequest request) {
         Long companyId = (Long) request.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
         if (companyId == null) {
@@ -49,7 +49,7 @@ public class MlController {
         return ResponseEntity.ok(mlRetrainService.listTrainingJobs(companyId));
     }
 
-    @GetMapping("/datasets")
+    @GetMapping("/ml/datasets")
     public ResponseEntity<List<Map<String, Object>>> listTrainingDatasets(HttpServletRequest request) {
         Long companyId = (Long) request.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
         if (companyId == null) {
@@ -58,7 +58,7 @@ public class MlController {
         return ResponseEntity.ok(mlRetrainService.listTrainingDatasets(companyId));
     }
 
-    @GetMapping("/datasets/{inputId}/records")
+    @GetMapping("/ml/datasets/{inputId}/records")
     public ResponseEntity<List<Map<String, Object>>> listTrainingDatasetRows(
             @PathVariable Long inputId,
             HttpServletRequest request
@@ -70,7 +70,7 @@ public class MlController {
         return ResponseEntity.ok(mlRetrainService.listTrainingDatasetRows(inputId, companyId));
     }
 
-    @DeleteMapping("/datasets/{inputId}")
+    @DeleteMapping("/ml/datasets/{inputId}")
     public ResponseEntity<Void> deleteTrainingDataset(
             @PathVariable Long inputId,
             HttpServletRequest request
@@ -83,7 +83,7 @@ public class MlController {
         return ResponseEntity.noContent().build();
     }
 
-    @GetMapping("/models")
+    @GetMapping("/ml/models")
     public ResponseEntity<List<Map<String, Object>>> listModels(HttpServletRequest request) {
         Long companyId = (Long) request.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
         if (companyId == null) {
@@ -92,7 +92,7 @@ public class MlController {
         return ResponseEntity.ok(mlRetrainService.listModels(companyId));
     }
 
-    @PatchMapping("/models/{modelId}/activate")
+    @PatchMapping("/ml/models/{modelId}/activate")
     public ResponseEntity<Void> activateModel(
             @PathVariable Long modelId,
             HttpServletRequest request
@@ -105,15 +105,15 @@ public class MlController {
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/predict")
+    @PostMapping("/previsao-entrega")
     @Operation(
             summary = "Prever prazo de entrega",
-            description = "Recebe os dados operacionais do frete, identifica a Company pela API key e encaminha a previsão para o serviço interno FastAPI.",
+            description = "Recebe os dados operacionais do frete, identifica a empresa pela API key e encaminha a previsão para o serviço interno FastAPI.",
             parameters = @Parameter(
                     name = "X-API-KEY",
                     in = ParameterIn.HEADER,
                     required = true,
-                    description = "API key interna da Company ou API key externa ativa associada a uma Company"
+                    description = "API key interna ou API key externa ativa associada à empresa"
             )
     )
     @ApiResponse(
@@ -128,13 +128,10 @@ public class MlController {
             HttpServletRequest request
     ) {
         Long companyId = (Long) request.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
-        if (companyId != null) {
-            payload.setCompanyId(companyId);
-        }
-        return ResponseEntity.ok(mlPredictionService.predict(payload));
+        return ResponseEntity.ok(mlPredictionService.predict(payload, companyId));
     }
 
-    @PostMapping("/retrain/upload-xlsx")
+    @PostMapping("/ml/retrain/upload-xlsx")
     public ResponseEntity<MlRetrainUploadResponse> retrain(
             @RequestPart("file") MultipartFile file,
             HttpServletRequest request
@@ -146,7 +143,7 @@ public class MlController {
         return ResponseEntity.ok(mlRetrainService.uploadTrainingDataset(file, companyId));
     }
 
-    @PostMapping("/train")
+    @PostMapping("/ml/train")
     public ResponseEntity<MlRetrainUploadResponse> train(
             @RequestBody MlTrainRequest payload,
             HttpServletRequest request

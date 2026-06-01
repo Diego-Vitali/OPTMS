@@ -21,7 +21,7 @@ function training_status_badge(string $status): string
                 <h1 class="section-title h3 mb-3">Filtrar treinamentos</h1>
                 <form method="get" action="/admin/ml/trainings" class="row g-3">
                     <div class="col-12">
-                        <label class="form-label" for="company_id">Company ID</label>
+                        <label class="form-label" for="company_id">ID da empresa</label>
                         <input class="form-control form-control-lg" id="company_id" name="company_id" type="number" min="1" value="<?= e((string) ($form['company_id'] ?? '')) ?>">
                     </div>
                     <div class="col-12 d-grid">
@@ -36,7 +36,7 @@ function training_status_badge(string $status): string
         <div class="panel-card p-4 h-100">
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-3">
                 <div>
-                    <span class="hero-badge mb-2">Machine Learning</span>
+                    <span class="hero-badge mb-2">Previsão</span>
                     <h2 class="section-title h4 mb-1">Treinamentos realizados</h2>
                     <p class="text-secondary mb-0">Acompanhe os lotes em treinamento, concluídos e com falha.</p>
                 </div>
@@ -55,18 +55,17 @@ function training_status_badge(string $status): string
                     <thead>
                         <tr>
                             <th>Lote</th>
-                            <?php if ($isAdmin): ?><th>Company</th><?php endif; ?>
+                            <?php if ($isAdmin): ?><th>Empresa</th><?php endif; ?>
                             <th>Status</th>
                             <th>Registros</th>
                             <th>Descartadas</th>
-                            <th>Artefato</th>
                             <th>Métricas</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($jobs)): ?>
                             <tr>
-                                <td colspan="<?= $isAdmin ? '7' : '6' ?>" class="text-center text-secondary py-4">Nenhum treinamento encontrado.</td>
+                                <td colspan="<?= $isAdmin ? '6' : '5' ?>" class="text-center text-secondary py-4">Nenhum treinamento encontrado.</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($jobs as $job): ?>
@@ -84,7 +83,6 @@ function training_status_badge(string $status): string
                                     </td>
                                     <td><?= e((string) ($job['nRegistrosTreino'] ?? '0')) ?></td>
                                     <td><?= e((string) ($job['linhasDescartadas'] ?? '0')) ?></td>
-                                    <td><?= e((string) ($job['artifactsId'] ?? '-')) ?></td>
                                     <td>
                                         MAE <?= e((string) ($job['maeKfold'] ?? '-')) ?><br>
                                         RMSE <?= e((string) ($job['rmseKfold'] ?? '-')) ?><br>

@@ -5,7 +5,7 @@
         <div class="panel-card p-4 p-lg-5">
             <span class="hero-badge mb-3">Admin</span>
             <h1 class="section-title h3 mb-3">Editar empresa</h1>
-            <p class="text-secondary mb-4">Atualize os dados principais da empresa. A API key atual permanece a mesma.</p>
+            <p class="text-secondary mb-4">Atualize os dados principais da empresa. A chave atual permanece a mesma.</p>
 
             <?php if (!empty($error)): ?>
                 <div class="alert alert-danger"><?= e((string) $error) ?></div>

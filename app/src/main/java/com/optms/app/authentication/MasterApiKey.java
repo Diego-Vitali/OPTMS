@@ -31,7 +31,7 @@ public class MasterApiKey extends OncePerRequestFilter {
             throws ServletException, IOException {
 
         String method = request.getMethod();
-        String path = request.getRequestURI();
+        String path = normalizedPath(request);
         String apiKey = request.getHeader(API_KEY_HEADER);
         boolean isAdminRoute = path.startsWith("/api/admin/");
 
@@ -42,14 +42,10 @@ public class MasterApiKey extends OncePerRequestFilter {
         boolean isCompanyStatusEndpoint = path.startsWith("/api/empresas/")
                 && "PATCH".equalsIgnoreCase(method)
                 && (path.endsWith("/desativar") || path.endsWith("/ativar"));
-        boolean isExternalApiKeyStatusEndpoint = path.startsWith("/api/external-apikeys/")
-                && "PATCH".equalsIgnoreCase(method)
-                && (path.endsWith("/desativar") || path.endsWith("/ativar"));
         boolean routeRequiresMaster = isAdminRoute
                 || isCompanyCreation
                 || isCompanyUpdate
-                || isCompanyStatusEndpoint
-                || isExternalApiKeyStatusEndpoint;
+                || isCompanyStatusEndpoint;
 
         if (hasMasterKey) {
             request.setAttribute(MASTER_ACCESS_ATTRIBUTE, true);
@@ -62,5 +58,13 @@ public class MasterApiKey extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private String normalizedPath(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        while (path.length() > 1 && path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
+        return path;
     }
 }

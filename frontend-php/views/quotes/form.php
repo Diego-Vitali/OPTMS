@@ -2,6 +2,7 @@
 $form = $form ?? [];
 $result = $result ?? [];
 $isAdmin = !empty($isAdmin);
+$ufs = brazilian_ufs();
 ?>
 
 <section class="row g-4">
@@ -26,11 +27,25 @@ $isAdmin = !empty($isAdmin);
                 <?php endif; ?>
                 <div class="col-md-6">
                     <label class="form-label" for="uf_origem">UF de origem</label>
-                    <input class="form-control form-control-lg" id="uf_origem" name="uf_origem" type="text" maxlength="2" required value="<?= e($form['uf_origem'] ?? '') ?>">
+                    <select class="form-select form-select-lg" id="uf_origem" name="uf_origem" required>
+                        <option value="">Selecione</option>
+                        <?php foreach ($ufs as $uf => $stateName): ?>
+                            <option value="<?= e($uf) ?>" <?= normalize_brazilian_uf($form['uf_origem'] ?? '') === $uf ? 'selected' : '' ?>>
+                                <?= e($uf . ' - ' . $stateName) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
                 <div class="col-md-6">
                     <label class="form-label" for="uf_destino">UF de destino</label>
-                    <input class="form-control form-control-lg" id="uf_destino" name="uf_destino" type="text" maxlength="2" required value="<?= e($form['uf_destino'] ?? '') ?>">
+                    <select class="form-select form-select-lg" id="uf_destino" name="uf_destino" required>
+                        <option value="">Selecione</option>
+                        <?php foreach ($ufs as $uf => $stateName): ?>
+                            <option value="<?= e($uf) ?>" <?= normalize_brazilian_uf($form['uf_destino'] ?? '') === $uf ? 'selected' : '' ?>>
+                                <?= e($uf . ' - ' . $stateName) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
                 <div class="col-md-6">
                     <label class="form-label" for="peso">Peso total (kg)</label>
@@ -51,7 +66,7 @@ $isAdmin = !empty($isAdmin);
         <div class="info-card p-4 h-100">
             <h2 class="section-title h5 mb-3">Resultado</h2>
             <?php if (empty($result['cotacoes'])): ?>
-                <p class="list-spec mb-0">A API retornará uma cotação por tabela ativa encontrada para a UF de origem informada.</p>
+                <p class="list-spec mb-0">O sistema retornará uma cotação por tabela ativa encontrada para a UF de origem informada.</p>
             <?php else: ?>
                 <div class="list-spec mb-3">
                     <p class="mb-1"><strong>Origem:</strong> <?= e((string) ($result['ufOrigem'] ?? '-')) ?></p>

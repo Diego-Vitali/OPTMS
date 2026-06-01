@@ -79,6 +79,12 @@ $isAdmin = !empty($isAdmin);
                                         <?php endif; ?>
                                     </td>
                                     <td class="text-end">
+                                        <?php
+                                        $detailUrl = $isAdmin
+                                            ? '/admin/tabelas-frete/' . urlencode((string) ($table['id'] ?? '')) . (!empty($form['company_id']) ? '?company_id=' . urlencode((string) $form['company_id']) : '')
+                                            : '/tabelas-frete/' . urlencode((string) ($table['id'] ?? ''));
+                                        ?>
+                                        <a class="btn btn-sm btn-outline-dark me-2" href="<?= e($detailUrl) ?>">Ver dados</a>
                                         <form method="post" action="<?= $isAdmin ? '/admin/tabelas-frete/acao' : '/tabelas-frete/acao' ?>" class="d-inline-flex">
                                             <input type="hidden" name="id" value="<?= e((string) ($table['id'] ?? '')) ?>">
                                             <?php if ($isAdmin): ?>

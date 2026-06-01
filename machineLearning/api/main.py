@@ -59,6 +59,12 @@ LABELS_VALOR = ["BAIXO_VALOR", "MEDIO_VALOR", "ALTO_VALOR", "CRITICO_VALOR"]
 
 logger = get_logger(__name__)
 
+def as_numeric_matrix(matrix):
+    """Normaliza a saída do pipeline para consumidores que exigem float denso."""
+    if hasattr(matrix, "toarray"):
+        matrix = matrix.toarray()
+    return np.asarray(matrix, dtype=float)
+
 # ── Schemas de Validação de Qualidade (Pydantic V2) ────────────────────────
 
 # 1. Definimos as opções válidas para o Brasil
@@ -217,7 +223,7 @@ def optimize_and_train(X, y):
 
     # 3. Treinamento do Cão de Guarda (Isolation Forest) COM DADOS TRANSFORMADOS
     logger.info("Treinando o Cão de Guarda (Isolation Forest)...")
-    X_train_mastigado = transformadores.transform(X_train)
+    X_train_mastigado = as_numeric_matrix(transformadores.transform(X_train))
     cao_de_guarda = IsolationForest(contamination=0.01, random_state=42, n_jobs=-1)
     cao_de_guarda.fit(X_train_mastigado)
     
@@ -279,7 +285,7 @@ def optimize_and_train(X, y):
         
         try:
             # Avaliação de anomalia pré-calculada
-            X_trans = transformadores.transform(df_fake)
+            X_trans = as_numeric_matrix(transformadores.transform(df_fake))
             status_anomalia = cao_de_guarda.predict(X_trans)[0]
             alpha_req = 0.05 if status_anomalia == -1 else 0.10
             
@@ -451,7 +457,7 @@ async def predict(data: FreightInput):
             resultado = conn.execute(query, {"cid": data.company_id}).fetchone()
             
         if not resultado:
-            return {"error": f"Nenhum modelo ativo encontrado para a company_id {data.company_id}. Solicite o retreino primeiro."}
+            return {"error": "Nenhum modelo ativo encontrado. Solicite o retreino primeiro."}
             
         artifacts_id = resultado[0]
         
@@ -460,7 +466,7 @@ async def predict(data: FreightInput):
         if artifacts_id not in modelos_em_memoria:
             caminho_arquivo = os.path.join(ARTIFACTS_DIR, artifacts_id)
             if not os.path.exists(caminho_arquivo):
-                return {"error": f"Arquivo físico '{artifacts_id}' corrompido ou não encontrado no servidor."}
+                return {"error": "Modelo ativo corrompido ou não encontrado no servidor."}
             
             logger.info(f"Carregando artefato {artifacts_id} para a memória RAM...")
             modelos_em_memoria[artifacts_id] = joblib.load(caminho_arquivo)
@@ -485,9 +491,6 @@ async def predict(data: FreightInput):
             if chave_busca in cache_ram:
                 dossie_calculado = cache_ram[chave_busca]
                 return {
-                    "engine": "LUDS_Cache_Serving_O(1)",
-                    "company_id": data.company_id,
-                    "artifacts_id": artifacts_id,
                     "chave_hash_consultada": chave_busca,
                     **dossie_calculado
                 }
@@ -500,7 +503,7 @@ async def predict(data: FreightInput):
         input_dict = data.model_dump(by_alias=False, exclude={"company_id"}) # Exclui o company_id pois ele não entra na matemática da IA
         df = pd.DataFrame([input_dict])
         
-        X_transformado = mlops_system["transformadores"].transform(df)
+        X_transformado = as_numeric_matrix(mlops_system["transformadores"].transform(df))
         
         status_anomalia = mlops_system["cao_de_guarda"].predict(X_transformado)[0]
         
@@ -534,9 +537,6 @@ async def predict(data: FreightInput):
             top_fatores = [{"variavel": "Explicação Indisponível (Ambiente sem SHAP)", "impacto_dias": 0.0}]
         
         return {
-            "engine": "On_Demand_Computation",
-            "company_id": data.company_id,
-            "artifacts_id": artifacts_id,
             "risco": alerta_risco,
             "tma_estimado_dias": tma_estimado,
             "intervalo_sla_dias": [tma_min, tma_max],

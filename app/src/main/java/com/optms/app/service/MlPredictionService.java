@@ -25,16 +25,16 @@ public class MlPredictionService {
         this.restTemplate = new RestTemplate();
     }
 
-    public MlPredictResponse predict(MlPredictRequest request) {
-        if (request.getCompanyId() == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "companyId é obrigatório para previsão");
+    public MlPredictResponse predict(MlPredictRequest request, Long companyId) {
+        if (companyId == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "API key ausente ou inválida");
         }
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("company_id", request.getCompanyId());
+        payload.put("company_id", companyId);
         payload.put("Peso total bruto", request.getPesoTotalBruto());
         payload.put("Metro cúbico", request.getMetroCubico());
         payload.put("Valor NF", request.getValorNF());

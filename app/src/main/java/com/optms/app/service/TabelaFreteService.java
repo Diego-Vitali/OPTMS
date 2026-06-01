@@ -2,6 +2,7 @@ package com.optms.app.service;
 
 import com.optms.app.dto.TabelaFreteRequest;
 import com.optms.app.dto.TabelaFreteRequest.ObjetoFreteDto;
+import com.optms.app.dto.TabelaFreteDetalheResponse;
 import com.optms.app.dto.TabelaFreteUploadResponse;
 import com.optms.app.model.ObjetoFrete;
 import com.optms.app.model.TabelaFrete;
@@ -33,6 +34,9 @@ public class TabelaFreteService {
         tabela.setCompanyId(companyId);
         tabela.setUfOrigem(request.getUfOrigem());
         tabela.setNome(request.getNome());
+        tabela.setTipo(request.getTipo());
+        tabela.setVigenciaInicio(request.getVigenciaInicio());
+        tabela.setVigenciaFim(request.getVigenciaFim());
         tabela.setAtiva(request.isAtiva());
         tabela = tabelaFreteRepository.save(tabela);
 
@@ -70,6 +74,18 @@ public class TabelaFreteService {
             return tabelaFreteRepository.findByCompanyId(companyId);
         }
         return tabelaFreteRepository.findAll();
+    }
+
+    public TabelaFreteDetalheResponse obterDetalhes(Long id, Long companyId) {
+        TabelaFrete tabela = tabelaFreteRepository.findByIdAndCompanyId(id, companyId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tabela de frete não encontrada"));
+        return new TabelaFreteDetalheResponse(tabela, objetoFreteRepository.findByTabelaId(tabela.getId()));
+    }
+
+    public TabelaFreteDetalheResponse obterDetalhesComoAdmin(Long id) {
+        TabelaFrete tabela = tabelaFreteRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tabela de frete não encontrada"));
+        return new TabelaFreteDetalheResponse(tabela, objetoFreteRepository.findByTabelaId(tabela.getId()));
     }
 
     @Transactional
@@ -111,6 +127,8 @@ public class TabelaFreteService {
     private ObjetoFrete toEntity(ObjetoFreteDto dto, Long tabelaId) {
         ObjetoFrete obj = new ObjetoFrete();
         obj.setTabelaId(tabelaId);
+        obj.setUfOrigem(dto.getUfOrigem());
+        obj.setUfDestino(dto.getUfDestino());
         obj.setUf(dto.getUf());
         obj.setTipoObjeto(dto.getTipoObjeto());
         obj.setBaseCalculo(dto.getBaseCalculo());

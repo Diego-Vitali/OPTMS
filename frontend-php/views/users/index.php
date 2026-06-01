@@ -11,7 +11,7 @@ $isAdmin = !empty($isAdmin);
             <h1 class="section-title h3 mb-3">Novo usuário</h1>
             <p class="text-secondary">
                 <?= $isAdmin
-                    ? 'Crie usuários para qualquer empresa informando o ID da company.'
+                    ? 'Crie usuários para qualquer empresa informando o ID da empresa.'
                     : 'Somente usuários já autenticados da mesma empresa podem criar outros usuários.' ?>
             </p>
 
@@ -50,7 +50,7 @@ $isAdmin = !empty($isAdmin);
             <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 align-items-lg-end mb-3">
                 <div>
                     <h2 class="section-title h4 mb-1">Usuários cadastrados</h2>
-                    <p class="text-secondary mb-0"><?= $isAdmin ? 'A listagem pode ser filtrada por empresa.' : 'A listagem mostra apenas usuários da sua company.' ?></p>
+                    <p class="text-secondary mb-0"><?= $isAdmin ? 'A listagem pode ser filtrada por empresa.' : 'A listagem mostra apenas usuários da sua empresa.' ?></p>
                 </div>
                 <form method="get" action="<?= $isAdmin ? '/admin/usuarios' : '/usuarios' ?>" class="row g-2 align-items-end">
                     <?php if ($isAdmin): ?>

@@ -9,10 +9,6 @@ import lombok.Setter;
 @Setter
 public class MlPredictRequest {
 
-    @JsonProperty("company_id")
-    @JsonAlias("companyId")
-    private Long companyId;
-
     @JsonProperty("Peso total bruto")
     @JsonAlias("pesoTotalBruto")
     private Double pesoTotalBruto;

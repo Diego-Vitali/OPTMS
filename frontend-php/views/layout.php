@@ -15,7 +15,6 @@
             <div class="container py-1">
                 <a class="navbar-brand app-brand-wrap" href="<?= is_admin_session() ? '/admin' : '/dashboard' ?>">
                     <span class="app-brand"><?= e(app_name()) ?></span>
-                    <span class="app-tagline"><?= e(app_slogan()) ?></span>
                 </a>
                 <button class="navbar-toggler border-0 shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#mainMenu" aria-controls="mainMenu" aria-expanded="false" aria-label="Abrir navegação">
                     <span class="navbar-toggler-icon"></span>
@@ -30,16 +29,14 @@
                             <li class="nav-item"><a class="nav-link" href="/admin/cotacoes">Cotações</a></li>
                             <li class="nav-item"><a class="nav-link" href="/previsoes">Previsões</a></li>
                             <li class="nav-item"><a class="nav-link" href="/admin/apikeys">API Keys</a></li>
-                            <li class="nav-item"><a class="nav-link" href="/admin/ml/retrain">Treinamento ML</a></li>
-                            <li class="nav-item"><a class="nav-link" href="/admin/ml/trainings">Histórico ML</a></li>
+                            <li class="nav-item"><a class="nav-link" href="/admin/ml/retrain">Treinamento</a></li>
                         <?php else: ?>
-                            <li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li>
+                            <li class="nav-item"><a class="nav-link" href="/dashboard">Painel</a></li>
                             <li class="nav-item"><a class="nav-link" href="/usuarios">Usuários</a></li>
                             <li class="nav-item"><a class="nav-link" href="/tabelas-frete">Tabela de Frete</a></li>
                             <li class="nav-item"><a class="nav-link" href="/cotacoes">Cotações</a></li>
                             <li class="nav-item"><a class="nav-link" href="/previsoes">Previsões</a></li>
-                            <li class="nav-item"><a class="nav-link" href="/ml/retrain">Treinamento ML</a></li>
-                            <li class="nav-item"><a class="nav-link" href="/ml/trainings">Histórico ML</a></li>
+                            <li class="nav-item"><a class="nav-link" href="/ml/retrain">Treinamento</a></li>
                             <li class="nav-item"><a class="nav-link" href="/apikeys">API Keys</a></li>
                         <?php endif; ?>
                         <li class="nav-item"><a class="nav-link text-warning" href="/logout">Sair</a></li>

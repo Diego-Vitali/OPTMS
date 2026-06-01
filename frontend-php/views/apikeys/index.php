@@ -1,4 +1,7 @@
-<?php $apiKeys = $apiKeys ?? []; ?>
+<?php
+$apiKeys = $apiKeys ?? [];
+$actionPath = !empty($isAdmin) ? '/admin/apikeys/acao' : '/apikeys/acao';
+?>
 
 <section class="row g-4">
     <div class="col-lg-4">
@@ -98,15 +101,17 @@
                                     <td>
                                         <div class="d-flex gap-2 flex-wrap">
                                             <button class="btn btn-sm btn-outline-dark" type="button" data-copy-text="<?= e((string) ($apiKeyItem['apikey'] ?? '')) ?>">Copiar key</button>
-                                            <?php if (!empty($isAdmin)): ?>
-                                                <form method="post" action="/admin/apikeys/acao">
-                                                    <input type="hidden" name="id" value="<?= e((string) ($apiKeyItem['id'] ?? '')) ?>">
+                                            <form method="post" action="<?= e($actionPath) ?>">
+                                                <input type="hidden" name="id" value="<?= e((string) ($apiKeyItem['id'] ?? '')) ?>">
+                                                <?php if (!empty($isAdmin)): ?>
                                                     <input type="hidden" name="company_id" value="<?= e((string) ($form['company_id'] ?? '')) ?>">
-                                                    <input type="hidden" name="action" value="<?= !empty($apiKeyItem['active']) ? 'desativar' : 'ativar' ?>">
-                                                    <button class="btn btn-sm <?= !empty($apiKeyItem['active']) ? 'btn-outline-warning' : 'btn-outline-success' ?>" type="submit">
-                                                        <?= !empty($apiKeyItem['active']) ? 'Desativar' : 'Ativar' ?>
-                                                    </button>
-                                                </form>
+                                                <?php endif; ?>
+                                                <input type="hidden" name="action" value="<?= !empty($apiKeyItem['active']) ? 'desativar' : 'ativar' ?>">
+                                                <button class="btn btn-sm <?= !empty($apiKeyItem['active']) ? 'btn-outline-warning' : 'btn-outline-success' ?>" type="submit">
+                                                    <?= !empty($apiKeyItem['active']) ? 'Desativar' : 'Ativar' ?>
+                                                </button>
+                                            </form>
+                                            <?php if (!empty($isAdmin)): ?>
                                                 <form method="post" action="/admin/apikeys/acao" onsubmit="return confirm('Excluir esta API key externa?');">
                                                     <input type="hidden" name="id" value="<?= e((string) ($apiKeyItem['id'] ?? '')) ?>">
                                                     <input type="hidden" name="company_id" value="<?= e((string) ($form['company_id'] ?? '')) ?>">

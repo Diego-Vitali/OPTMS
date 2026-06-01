@@ -69,7 +69,7 @@ switch (true) {
             redirect('/admin');
         }
         View::render('dashboard', [
-            'title' => 'Dashboard',
+            'title' => 'Painel',
             'session' => current_user_session(),
         ]);
         break;
@@ -272,6 +272,29 @@ switch (true) {
         }
         break;
 
+    case preg_match('#^/tabelas-frete/(\d+)$#', $path, $matches) === 1 && $method === 'GET':
+        require_authentication();
+        if (is_admin_session()) {
+            redirect('/admin/tabelas-frete/' . urlencode((string) $matches[1]));
+        }
+        try {
+            $detail = $apiClient->getJson('/api/tabelas-frete/' . urlencode((string) $matches[1]), current_company_api_key(), current_api_headers());
+            View::render('freight/detail', [
+                'title' => 'Dados da Tabela de Frete',
+                'detail' => $detail,
+                'isAdmin' => false,
+            ]);
+        } catch (ApiException $exception) {
+            guard_authenticated_api_exception($exception);
+            View::render('freight/detail', [
+                'title' => 'Dados da Tabela de Frete',
+                'detail' => [],
+                'isAdmin' => false,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+        break;
+
     case $path === '/tabelas-frete/acao' && $method === 'POST':
         require_authentication();
         if (is_admin_session()) {
@@ -308,16 +331,26 @@ switch (true) {
         }
 
         $form = default_quote_form([
-            'uf_origem' => trim((string) ($_POST['uf_origem'] ?? '')),
-            'uf_destino' => trim((string) ($_POST['uf_destino'] ?? '')),
+            'uf_origem' => normalize_brazilian_uf($_POST['uf_origem'] ?? ''),
+            'uf_destino' => normalize_brazilian_uf($_POST['uf_destino'] ?? ''),
             'peso' => trim((string) ($_POST['peso'] ?? '')),
             'valor_nf' => trim((string) ($_POST['valor_nf'] ?? '')),
         ]);
 
+        if ($ufError = validate_brazilian_ufs($form, ['uf_origem', 'uf_destino'])) {
+            View::render('quotes/form', [
+                'title' => 'Cotações',
+                'isAdmin' => false,
+                'form' => $form,
+                'error' => $ufError,
+            ]);
+            break;
+        }
+
         try {
             $result = $apiClient->postJson('/api/cotacoes', [
-                'ufOrigem' => strtoupper($form['uf_origem']),
-                'ufDestino' => strtoupper($form['uf_destino']),
+                'ufOrigem' => $form['uf_origem'],
+                'ufDestino' => $form['uf_destino'],
                 'peso' => (float) $form['peso'],
                 'valorNF' => (float) $form['valor_nf'],
             ], current_company_api_key(), current_api_headers());
@@ -358,10 +391,19 @@ switch (true) {
             'volume_nf' => trim((string) ($_POST['volume_nf'] ?? '')),
             'tipo_frete_nf' => trim((string) ($_POST['tipo_frete_nf'] ?? 'CIF')),
             'via_transporte' => trim((string) ($_POST['via_transporte'] ?? 'Rodoviário')),
-            'uf_emitente_nf' => trim((string) ($_POST['uf_emitente_nf'] ?? '')),
-            'uf_destinatario_nf' => trim((string) ($_POST['uf_destinatario_nf'] ?? '')),
-            'company_id' => trim((string) ($_POST['company_id'] ?? '')),
+            'uf_emitente_nf' => normalize_brazilian_uf($_POST['uf_emitente_nf'] ?? ''),
+            'uf_destinatario_nf' => normalize_brazilian_uf($_POST['uf_destinatario_nf'] ?? ''),
         ]);
+
+        if ($ufError = validate_brazilian_ufs($form, ['uf_emitente_nf', 'uf_destinatario_nf'])) {
+            View::render('ml/predict', [
+                'title' => 'Previsões',
+                'isAdmin' => is_admin_session(),
+                'form' => $form,
+                'error' => $ufError,
+            ]);
+            break;
+        }
 
         $predictionPayload = [
             'pesoTotalBruto' => (float) $form['peso_total_bruto'],
@@ -370,15 +412,12 @@ switch (true) {
             'volumeNF' => (int) $form['volume_nf'],
             'tipoFreteNF' => $form['tipo_frete_nf'],
             'viaTransporte' => $form['via_transporte'],
-            'ufEmitenteNF' => strtoupper($form['uf_emitente_nf']),
-            'ufDestinatarioNF' => strtoupper($form['uf_destinatario_nf']),
+            'ufEmitenteNF' => $form['uf_emitente_nf'],
+            'ufDestinatarioNF' => $form['uf_destinatario_nf'],
         ];
-        if (is_admin_session()) {
-            $predictionPayload['companyId'] = $form['company_id'] === '' ? null : (int) $form['company_id'];
-        }
 
         try {
-            $result = $apiClient->postJson('/api/ml/predict', $predictionPayload, current_company_api_key(), current_api_headers());
+            $result = $apiClient->postJson('/api/previsao-entrega', $predictionPayload, current_company_api_key(), current_api_headers());
 
             View::render('ml/predict', [
                 'title' => 'Previsões',
@@ -485,7 +524,7 @@ switch (true) {
         }
         try {
             $apiClient->patchJson('/api/ml/models/' . urlencode((string) ($_POST['model_id'] ?? '')) . '/activate', [], current_company_api_key(), current_api_headers());
-            flash('success', 'Modelo ativado para a company.');
+            flash('success', 'Modelo ativado para a empresa.');
         } catch (ApiException $exception) {
             guard_authenticated_api_exception($exception);
             flash('danger', $exception->getMessage());
@@ -494,26 +533,7 @@ switch (true) {
 
     case $path === '/ml/trainings' && $method === 'GET':
         require_authentication();
-        if (is_admin_session()) {
-            redirect('/admin/ml/trainings');
-        }
-        try {
-            $jobs = $apiClient->getJson('/api/ml/retrain/jobs', current_company_api_key(), current_api_headers());
-            View::render('ml/trainings', [
-                'title' => 'Histórico de Treinamentos',
-                'jobs' => is_array($jobs) ? $jobs : [],
-                'isAdmin' => false,
-            ]);
-        } catch (ApiException $exception) {
-            guard_authenticated_api_exception($exception);
-            View::render('ml/trainings', [
-                'title' => 'Histórico de Treinamentos',
-                'jobs' => [],
-                'isAdmin' => false,
-                'error' => $exception->getMessage(),
-            ]);
-        }
-        break;
+        redirect(is_admin_session() ? '/admin/ml/retrain' : '/ml/retrain');
 
     case $path === '/admin/ml/retrain' && $method === 'GET':
         require_admin();
@@ -600,7 +620,7 @@ switch (true) {
         $companyId = trim((string) ($_POST['company_id'] ?? ''));
         try {
             $apiClient->patchJson('/api/admin/ml/models/' . urlencode((string) ($_POST['model_id'] ?? '')) . '/activate', [], current_company_api_key());
-            flash('success', 'Modelo ativado para a company.');
+            flash('success', 'Modelo ativado para a empresa.');
         } catch (ApiException $exception) {
             guard_authenticated_api_exception($exception);
             flash('danger', $exception->getMessage());
@@ -609,27 +629,7 @@ switch (true) {
 
     case $path === '/admin/ml/trainings' && $method === 'GET':
         require_admin();
-        $companyId = trim((string) ($_GET['company_id'] ?? ''));
-        $suffix = $companyId !== '' ? '?companyId=' . urlencode($companyId) : '';
-        try {
-            $jobs = $apiClient->getJson('/api/admin/ml/retrain/jobs' . $suffix, current_company_api_key());
-            View::render('ml/trainings', [
-                'title' => 'Histórico de Treinamentos',
-                'jobs' => is_array($jobs) ? $jobs : [],
-                'isAdmin' => true,
-                'form' => ['company_id' => $companyId],
-            ]);
-        } catch (ApiException $exception) {
-            guard_authenticated_api_exception($exception);
-            View::render('ml/trainings', [
-                'title' => 'Histórico de Treinamentos',
-                'jobs' => [],
-                'isAdmin' => true,
-                'form' => ['company_id' => $companyId],
-                'error' => $exception->getMessage(),
-            ]);
-        }
-        break;
+        redirect('/admin/ml/retrain');
 
     case $path === '/apikeys' && $method === 'GET':
         require_authentication();
@@ -695,6 +695,25 @@ switch (true) {
             ]);
         }
         break;
+
+    case $path === '/apikeys/acao' && $method === 'POST':
+        require_authentication();
+        if (is_admin_session()) {
+            redirect('/admin/apikeys');
+        }
+
+        $apiKeyId = trim((string) ($_POST['id'] ?? ''));
+        $action = trim((string) ($_POST['action'] ?? ''));
+        $endpoint = $action === 'ativar' ? '/ativar' : '/desativar';
+
+        try {
+            $apiClient->patchJson('/api/external-apikeys/' . urlencode($apiKeyId) . $endpoint, [], current_company_api_key(), current_api_headers());
+            flash('success', 'Status da chave atualizado.');
+        } catch (ApiException $exception) {
+            guard_authenticated_api_exception($exception);
+            flash('danger', $exception->getMessage());
+        }
+        redirect('/apikeys');
 
     case $path === '/admin' && $method === 'GET':
         require_admin();
@@ -1016,6 +1035,29 @@ switch (true) {
         }
         break;
 
+    case preg_match('#^/admin/tabelas-frete/(\d+)$#', $path, $matches) === 1 && $method === 'GET':
+        require_admin();
+        $companyId = trim((string) ($_GET['company_id'] ?? ''));
+        try {
+            $detail = $apiClient->getJson('/api/admin/tabelas-frete/' . urlencode((string) $matches[1]), current_company_api_key());
+            View::render('freight/detail', [
+                'title' => 'Dados da Tabela de Frete',
+                'detail' => $detail,
+                'isAdmin' => true,
+                'form' => ['company_id' => $companyId],
+            ]);
+        } catch (ApiException $exception) {
+            guard_authenticated_api_exception($exception);
+            View::render('freight/detail', [
+                'title' => 'Dados da Tabela de Frete',
+                'detail' => [],
+                'isAdmin' => true,
+                'form' => ['company_id' => $companyId],
+                'error' => $exception->getMessage(),
+            ]);
+        }
+        break;
+
     case $path === '/admin/tabelas-frete/acao' && $method === 'POST':
         require_admin();
         $tableId = trim((string) ($_POST['id'] ?? ''));
@@ -1044,16 +1086,26 @@ switch (true) {
         require_admin();
         $form = default_quote_form([
             'company_id' => trim((string) ($_POST['company_id'] ?? '')),
-            'uf_origem' => trim((string) ($_POST['uf_origem'] ?? '')),
-            'uf_destino' => trim((string) ($_POST['uf_destino'] ?? '')),
+            'uf_origem' => normalize_brazilian_uf($_POST['uf_origem'] ?? ''),
+            'uf_destino' => normalize_brazilian_uf($_POST['uf_destino'] ?? ''),
             'peso' => trim((string) ($_POST['peso'] ?? '')),
             'valor_nf' => trim((string) ($_POST['valor_nf'] ?? '')),
         ]);
 
+        if ($ufError = validate_brazilian_ufs($form, ['uf_origem', 'uf_destino'])) {
+            View::render('quotes/form', [
+                'title' => 'Cotações',
+                'isAdmin' => true,
+                'form' => $form,
+                'error' => $ufError,
+            ]);
+            break;
+        }
+
         try {
             $result = $apiClient->postJson('/api/admin/cotacoes?companyId=' . urlencode($form['company_id']), [
-                'ufOrigem' => strtoupper($form['uf_origem']),
-                'ufDestino' => strtoupper($form['uf_destino']),
+                'ufOrigem' => $form['uf_origem'],
+                'ufDestino' => $form['uf_destino'],
                 'peso' => (float) $form['peso'],
                 'valorNF' => (float) $form['valor_nf'],
             ], current_company_api_key());

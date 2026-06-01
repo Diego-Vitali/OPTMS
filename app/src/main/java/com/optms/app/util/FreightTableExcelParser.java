@@ -3,16 +3,18 @@ package com.optms.app.util;
 import com.optms.app.dto.TabelaFreteRequest;
 import com.optms.app.dto.TabelaFreteRequest.ObjetoFreteDto;
 import com.optms.app.model.FaixaCalculo;
+import com.optms.app.model.FaixaCalculo.Regra;
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -28,17 +30,27 @@ import org.springframework.web.server.ResponseStatusException;
 public class FreightTableExcelParser {
 
     private static final int XLSX_BYTE_ARRAY_MAX_OVERRIDE = 300_000_000;
+    private static final String WILDCARD = "*";
 
-    private static final Set<String> REQUIRED_HEADERS = Set.of(
+    private static final Set<String> PARTIDA_HEADERS = Set.of(
             "UF_ORIGEM",
             "UF_DESTINO",
             "FAIXA_INICIAL",
             "FAIXA_FINAL",
-            "VALOR_FRETE",
-            "PESO_MINIMO",
-            "GRIS",
-            "AD_VALOREM",
-            "PEDAGIO"
+            "UNIDADE_VARIANTE",
+            "METODO_DE_CALCULO",
+            "VALOR"
+    );
+
+    private static final Set<String> COMPONENTE_HEADERS = Set.of(
+            "NOME_COMPONENTE",
+            "UF_ORIGEM",
+            "UF_DESTINO",
+            "FAIXA_INICIAL",
+            "FAIXA_FINAL",
+            "UNIDADE_VARIANTE",
+            "METODO_DE_CALCULO",
+            "VALOR"
     );
 
     public TabelaFreteRequest parse(MultipartFile file) {
@@ -49,57 +61,34 @@ public class FreightTableExcelParser {
         IOUtils.setByteArrayMaxOverride(XLSX_BYTE_ARRAY_MAX_OVERRIDE);
 
         try (InputStream inputStream = file.getInputStream(); Workbook workbook = new XSSFWorkbook(inputStream)) {
-            Sheet configSheet = workbook.getSheet("Config");
-            Sheet dataSheet = workbook.getSheet("Tabela");
+            Sheet configSheet = findSheet(workbook, "config");
+            Sheet partidaSheet = findSheet(workbook, "frete_partida");
+            Sheet componenteSheet = findSheet(workbook, "componente");
 
-            if (configSheet == null || dataSheet == null) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "O arquivo deve conter as abas 'Config' e 'Tabela'");
+            if (configSheet == null || partidaSheet == null || componenteSheet == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "O arquivo deve conter as abas 'config', 'frete_partida' e 'componente'");
             }
 
             Map<String, String> config = parseConfig(configSheet);
-            Map<String, Integer> headers = ExcelSupport.mapHeaders(dataSheet.getRow(dataSheet.getFirstRowNum()));
-            ExcelSupport.requireHeaders(headers, REQUIRED_HEADERS);
+            String identifier = requiredConfig(config, "IDENTIFICADOR_DA_TABELA");
 
-            List<FreightRow> rows = new ArrayList<>();
-            for (int index = dataSheet.getFirstRowNum() + 1; index <= dataSheet.getLastRowNum(); index++) {
-                Row row = dataSheet.getRow(index);
-                if (ExcelSupport.isBlank(row)) {
-                    continue;
-                }
+            List<ObjetoFreteDto> objetos = new ArrayList<>();
+            objetos.addAll(parseObjects(partidaSheet, true));
+            objetos.addAll(parseObjects(componenteSheet, false));
 
-                rows.add(new FreightRow(
-                        normalizeUf(requiredText(row, headers, "UF_ORIGEM")),
-                        normalizeUf(requiredText(row, headers, "UF_DESTINO")),
-                        requiredDecimal(row, headers, "FAIXA_INICIAL"),
-                        requiredDecimal(row, headers, "FAIXA_FINAL"),
-                        requiredDecimal(row, headers, "VALOR_FRETE"),
-                        ExcelSupport.decimal(row, headers, "PESO_MINIMO"),
-                        zeroIfNull(ExcelSupport.decimal(row, headers, "GRIS")),
-                        zeroIfNull(ExcelSupport.decimal(row, headers, "AD_VALOREM")),
-                        zeroIfNull(ExcelSupport.decimal(row, headers, "PEDAGIO"))
-                ));
+            if (objetos.stream().noneMatch(objeto -> "PARTIDA".equals(objeto.getTipoObjeto()))) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A aba frete_partida precisa ter pelo menos uma regra válida");
             }
-
-            if (rows.isEmpty()) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nenhuma linha válida encontrada na aba Tabela");
-            }
-
-            List<String> origins = rows.stream()
-                    .map(FreightRow::ufOrigem)
-                    .distinct()
-                    .toList();
-            if (origins.size() != 1) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "O upload deve conter apenas uma UF de origem por arquivo");
-            }
-
-            String rangeType = normalizeRangeType(config.get("TIPO"));
-            String tableName = config.getOrDefault("TRANSPORTADORA", "Tabela " + origins.getFirst());
 
             TabelaFreteRequest request = new TabelaFreteRequest();
-            request.setUfOrigem(origins.getFirst());
-            request.setNome(tableName);
+            request.setUfOrigem(resolveLegacyOrigin(objetos));
+            request.setNome(identifier);
+            request.setTipo(requiredConfig(config, "TIPO"));
+            request.setVigenciaInicio(parseDate(requiredConfig(config, "VIGENCIA_INICIO"), "VIGENCIA_INICIO"));
+            request.setVigenciaFim(parseDate(requiredConfig(config, "VIGENCIA_FIM"), "VIGENCIA_FIM"));
             request.setAtiva(true);
-            request.setObjetos(buildObjects(rows, rangeType));
+            request.setObjetos(objetos);
             return request;
         } catch (RecordFormatException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -128,67 +117,108 @@ public class FreightTableExcelParser {
         return config;
     }
 
-    private List<ObjetoFreteDto> buildObjects(List<FreightRow> rows, String rangeType) {
-        Map<String, List<FreightRow>> rowsByDestination = rows.stream()
-                .sorted(Comparator.comparing(FreightRow::faixaFinal))
-                .collect(Collectors.groupingBy(FreightRow::ufDestino, LinkedHashMap::new, Collectors.toList()));
+    private List<ObjetoFreteDto> parseObjects(Sheet sheet, boolean partida) {
+        Map<String, Integer> headers = ExcelSupport.mapHeaders(sheet.getRow(sheet.getFirstRowNum()));
+        ExcelSupport.requireHeaders(headers, partida ? PARTIDA_HEADERS : COMPONENTE_HEADERS);
 
-        List<ObjetoFreteDto> objects = new ArrayList<>();
-        for (Map.Entry<String, List<FreightRow>> entry : rowsByDestination.entrySet()) {
-            String destination = entry.getKey();
-            List<FreightRow> destinationRows = entry.getValue();
-
-            objects.add(buildFixedComponent(destination, "PARTIDA", "FRETE_BASE", rangeType, "FAIXA", false, destinationRows,
-                    destinationRows.stream().map(FreightRow::valorFrete).toList(),
-                    destinationRows.stream().map(FreightRow::pesoMinimo).filter(value -> value != null && value > 0).findFirst().orElse(null)));
-
-            if (destinationRows.stream().anyMatch(row -> row.gris() > 0)) {
-                objects.add(buildFixedComponent(destination, "COMPONENTE", "GRIS", "VLR_NF", "PERCENTUAL", false, destinationRows,
-                        destinationRows.stream().map(FreightRow::gris).toList(), null));
+        Map<String, ObjetoFreteDto> objectsByKey = new LinkedHashMap<>();
+        for (int index = sheet.getFirstRowNum() + 1; index <= sheet.getLastRowNum(); index++) {
+            Row row = sheet.getRow(index);
+            if (ExcelSupport.isBlank(row)) {
+                continue;
             }
 
-            if (destinationRows.stream().anyMatch(row -> row.adValorem() > 0)) {
-                objects.add(buildFixedComponent(destination, "COMPONENTE", "AD_VALOREM", "VLR_NF", "PERCENTUAL", false, destinationRows,
-                        destinationRows.stream().map(FreightRow::adValorem).toList(), null));
+            String ufOrigem = normalizeUf(requiredText(row, headers, "UF_ORIGEM"));
+            String ufDestino = normalizeUf(requiredText(row, headers, "UF_DESTINO"));
+            String unidade = normalizeUnidade(requiredText(row, headers, "UNIDADE_VARIANTE"), partida);
+            String metodo = normalizeMetodo(requiredText(row, headers, "METODO_DE_CALCULO"));
+            String nome = partida ? "FRETE_PARTIDA" : requiredText(row, headers, "NOME_COMPONENTE").trim();
+            String politicaExcedente = normalizePoliticaExcedente(ExcelSupport.text(row, headers, "POLITICA_EXCEDENTE"));
+
+            Double faixaInicial = ExcelSupport.decimal(row, headers, "FAIXA_INICIAL");
+            Double faixaFinal = ExcelSupport.decimal(row, headers, "FAIXA_FINAL");
+            if ((faixaInicial == null) != (faixaFinal == null)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "FAIXA_INICIAL e FAIXA_FINAL devem ser preenchidas juntas ou deixadas vazias");
+            }
+            if (faixaInicial != null && faixaFinal < faixaInicial) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "FAIXA_FINAL não pode ser menor que FAIXA_INICIAL");
             }
 
-            if (destinationRows.stream().anyMatch(row -> row.pedagio() > 0)) {
-                objects.add(buildFixedComponent(destination, "COMPONENTE", "PEDAGIO", rangeType, "FAIXA", false, destinationRows,
-                        destinationRows.stream().map(FreightRow::pedagio).toList(), null));
+            Regra regra = new Regra();
+            regra.setFaixaInicial(faixaInicial);
+            regra.setFaixaFinal(faixaFinal);
+            regra.setValor(requiredDecimal(row, headers, "VALOR"));
+
+            String key = String.join("|", partida ? "PARTIDA" : "COMPONENTE", nome, ufOrigem, ufDestino, unidade, metodo);
+            ObjetoFreteDto objeto = objectsByKey.computeIfAbsent(key, ignored -> buildObject(partida, nome, ufOrigem, ufDestino, unidade, metodo, politicaExcedente));
+            if (isLastRangeForObject(objeto, regra)) {
+                objeto.getFaixas().setPoliticaExcedente(politicaExcedente);
             }
+            objeto.getFaixas().getRegras().add(regra);
         }
 
-        return objects;
+        return new ArrayList<>(objectsByKey.values());
     }
 
-    private ObjetoFreteDto buildFixedComponent(
-            String destination,
-            String objectType,
-            String componentName,
-            String calculationBase,
-            String calculationType,
-            boolean overBaseFreight,
-            List<FreightRow> rows,
-            List<Double> values,
-            Double minimumValue
+    private boolean isLastRangeForObject(ObjetoFreteDto objeto, Regra candidate) {
+        if (candidate.getFaixaFinal() == null) {
+            return true;
+        }
+        return objeto.getFaixas().getRegras().stream()
+                .map(Regra::getFaixaFinal)
+                .filter(value -> value != null)
+                .mapToDouble(Double::doubleValue)
+                .max()
+                .orElse(Double.NEGATIVE_INFINITY) <= candidate.getFaixaFinal();
+    }
+
+    private ObjetoFreteDto buildObject(
+            boolean partida,
+            String nome,
+            String ufOrigem,
+            String ufDestino,
+            String unidade,
+            String metodo,
+            String politicaExcedente
     ) {
-        FaixaCalculo faixaCalculo = new FaixaCalculo();
-        faixaCalculo.setTipoFaixa(calculationBase);
-        faixaCalculo.setFaixasIniciais(rows.stream().map(FreightRow::faixaInicial).toList());
-        faixaCalculo.setFaixas(rows.stream().map(FreightRow::faixaFinal).toList());
-        faixaCalculo.setValores(values);
-        faixaCalculo.setValorExcedente(values.getLast());
-        faixaCalculo.setMinimo(minimumValue);
+        FaixaCalculo faixas = new FaixaCalculo();
+        faixas.setTipoFaixa(unidade);
+        faixas.setUnidadeVariante(unidade);
+        faixas.setMetodoCalculo(metodo);
+        faixas.setPoliticaExcedente(politicaExcedente);
+        faixas.setRegras(new ArrayList<>());
 
         ObjetoFreteDto dto = new ObjetoFreteDto();
-        dto.setUf(destination);
-        dto.setTipoObjeto(objectType);
-        dto.setBaseCalculo(calculationBase);
-        dto.setTipoCalculo(calculationType);
-        dto.setNomeComponente(componentName);
-        dto.setSobreFretePartida(overBaseFreight);
-        dto.setFaixas(faixaCalculo);
+        dto.setTipoObjeto(partida ? "PARTIDA" : "COMPONENTE");
+        dto.setNomeComponente(nome);
+        dto.setUfOrigem(ufOrigem);
+        dto.setUfDestino(ufDestino);
+        dto.setUf(WILDCARD.equals(ufDestino) ? null : ufDestino);
+        dto.setBaseCalculo(unidade);
+        dto.setTipoCalculo(metodo);
+        dto.setSobreFretePartida(FaixaCalculo.UNIDADE_FRETE_PARTIDA.equals(unidade));
+        dto.setFaixas(faixas);
         return dto;
+    }
+
+    private Sheet findSheet(Workbook workbook, String expectedName) {
+        String expected = ExcelSupport.normalizeKey(expectedName);
+        for (int index = 0; index < workbook.getNumberOfSheets(); index++) {
+            Sheet sheet = workbook.getSheetAt(index);
+            if (ExcelSupport.normalizeKey(sheet.getSheetName()).equals(expected)) {
+                return sheet;
+            }
+        }
+        return null;
+    }
+
+    private String requiredConfig(Map<String, String> config, String key) {
+        String value = config.get(ExcelSupport.normalizeKey(key));
+        if (value == null || value.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Config obrigatório ausente: " + key);
+        }
+        return value.trim();
     }
 
     private String requiredText(Row row, Map<String, Integer> headers, String header) {
@@ -208,27 +238,77 @@ public class FreightTableExcelParser {
     }
 
     private String normalizeUf(String value) {
-        return value.trim().toUpperCase(Locale.ROOT);
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        return "TODOS".equals(normalized) || "ALL".equals(normalized) ? WILDCARD : normalized;
     }
 
-    private String normalizeRangeType(String value) {
-        return "VALOR".equalsIgnoreCase(value) ? "VLR_NF" : "PESO";
+    private String normalizeUnidade(String value, boolean partida) {
+        String normalized = ExcelSupport.normalizeKey(value);
+        String unidade = switch (normalized) {
+            case "PESO", "KG" -> FaixaCalculo.UNIDADE_PESO;
+            case "VLR", "VALOR", "VALOR_NF", "VLR_NF" -> FaixaCalculo.UNIDADE_VALOR;
+            case "FRETE_PARTIDA", "PARTIDA" -> FaixaCalculo.UNIDADE_FRETE_PARTIDA;
+            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "UNIDADE_VARIANTE inválida: " + value);
+        };
+        if (partida && FaixaCalculo.UNIDADE_FRETE_PARTIDA.equals(unidade)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "frete_partida não é uma unidade válida na aba frete_partida");
+        }
+        return unidade;
     }
 
-    private double zeroIfNull(Double value) {
-        return value != null ? value : 0.0;
+    private String normalizeMetodo(String value) {
+        String trimmed = value.trim();
+        if ("*".equals(trimmed)) {
+            return FaixaCalculo.METODO_MULTIPLICADOR;
+        }
+        if ("%".equals(trimmed)) {
+            return FaixaCalculo.METODO_PERCENTUAL;
+        }
+
+        String normalized = ExcelSupport.normalizeKey(value);
+        return switch (normalized) {
+            case "MULTIPLICADOR" -> FaixaCalculo.METODO_MULTIPLICADOR;
+            case "PERCENTUAL", "PORCENTAGEM", "PCT" -> FaixaCalculo.METODO_PERCENTUAL;
+            case "VLR_FIXO", "VALOR_FIXO", "FIXO" -> FaixaCalculo.METODO_VALOR_FIXO;
+            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "METODO_DE_CALCULO inválido: " + value);
+        };
     }
 
-    private record FreightRow(
-            String ufOrigem,
-            String ufDestino,
-            Double faixaInicial,
-            Double faixaFinal,
-            Double valorFrete,
-            Double pesoMinimo,
-            Double gris,
-            Double adValorem,
-            Double pedagio
-    ) {
+    private String normalizePoliticaExcedente(String value) {
+        if (value == null || value.isBlank()) {
+            return FaixaCalculo.EXCEDENTE_TOTAL;
+        }
+        String normalized = ExcelSupport.normalizeKey(value);
+        return switch (normalized) {
+            case "APENAS_EXCEDENTE", "EXCEDENTE" -> FaixaCalculo.EXCEDENTE_APENAS_EXCEDENTE;
+            case "TOTAL", "TUDO" -> FaixaCalculo.EXCEDENTE_TOTAL;
+            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "POLITICA_EXCEDENTE inválida: " + value);
+        };
+    }
+
+    private LocalDate parseDate(String value, String field) {
+        List<DateTimeFormatter> formatters = List.of(
+                DateTimeFormatter.ISO_LOCAL_DATE,
+                DateTimeFormatter.ofPattern("dd/MM/yyyy"),
+                DateTimeFormatter.ofPattern("d/M/yyyy"),
+                DateTimeFormatter.ofPattern("MM/dd/yyyy"),
+                DateTimeFormatter.ofPattern("M/d/yyyy")
+        );
+        for (DateTimeFormatter formatter : formatters) {
+            try {
+                return LocalDate.parse(value, formatter);
+            } catch (DateTimeParseException ignored) {
+            }
+        }
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Data inválida em " + field + ": " + value);
+    }
+
+    private String resolveLegacyOrigin(List<ObjetoFreteDto> objetos) {
+        List<String> origins = objetos.stream()
+                .map(ObjetoFreteDto::getUfOrigem)
+                .filter(value -> value != null && !value.isBlank())
+                .distinct()
+                .toList();
+        return origins.size() == 1 ? origins.getFirst() : "MULTI";
     }
 }

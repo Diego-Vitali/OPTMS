@@ -1,7 +1,7 @@
 <section class="row g-4 align-items-stretch py-4">
     <div class="col-lg-6">
         <div class="hero-shell p-4 p-lg-5 h-100">
-            <span class="hero-badge mb-4">Portal PHP</span>
+            <span class="hero-badge mb-4">Portal</span>
             <h1 class="display-6 fw-bold mb-3">Acesse o <?= e(app_name()) ?> com o seu usuário.</h1>
             <p class="lead text-white-50 mb-4">
                 <?= e(app_slogan()) ?>
@@ -9,7 +9,7 @@
             <div class="d-flex flex-wrap gap-2">
                 <span class="stat-chip">Login por usuário</span>
                 <span class="stat-chip">Sessão protegida</span>
-                <span class="stat-chip">Bootstrap 5</span>
+                <span class="stat-chip">Ambiente seguro</span>
             </div>
         </div>
     </div>

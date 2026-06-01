@@ -4,6 +4,7 @@ import com.optms.app.model.FaixaCalculo;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /** Payload para criação de uma tabela de frete com seus componentes. */
@@ -15,6 +16,9 @@ public class TabelaFreteRequest {
     private String ufOrigem;
 
     private String nome;
+    private String tipo;
+    private LocalDate vigenciaInicio;
+    private LocalDate vigenciaFim;
     private boolean ativa = true;
 
     /** Lista de componentes de frete (PARTIDA + COMPONENTEs). */
@@ -26,6 +30,8 @@ public class TabelaFreteRequest {
 
         /** UF de destino para COMPONENTEs; null = aplica a todos os destinos. */
         private String uf;
+        private String ufOrigem;
+        private String ufDestino;
 
         /** PARTIDA = frete base; COMPONENTE = encargo adicional. */
         private String tipoObjeto;

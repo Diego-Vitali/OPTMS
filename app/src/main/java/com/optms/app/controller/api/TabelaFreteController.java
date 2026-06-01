@@ -1,6 +1,7 @@
 package com.optms.app.controller.api;
 
 import com.optms.app.authentication.CompanyApiKeyFilter;
+import com.optms.app.dto.TabelaFreteDetalheResponse;
 import com.optms.app.dto.TabelaFreteRequest;
 import com.optms.app.dto.TabelaFreteUploadResponse;
 import com.optms.app.model.TabelaFrete;
@@ -36,6 +37,12 @@ public class TabelaFreteController {
     public ResponseEntity<List<TabelaFrete>> listar(HttpServletRequest httpRequest) {
         Long companyId = (Long) httpRequest.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
         return ResponseEntity.ok(tabelaFreteService.listar(companyId));
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<TabelaFreteDetalheResponse> obter(@PathVariable Long id, HttpServletRequest httpRequest) {
+        Long companyId = (Long) httpRequest.getAttribute(CompanyApiKeyFilter.COMPANY_ID_ATTRIBUTE);
+        return ResponseEntity.ok(tabelaFreteService.obterDetalhes(id, companyId));
     }
 
     @PostMapping

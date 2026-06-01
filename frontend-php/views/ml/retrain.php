@@ -18,7 +18,7 @@ $activateModelAction = $isAdmin ? '/admin/ml/models/activate' : '/ml/models/acti
 <section class="row g-4">
     <div class="col-lg-4">
         <div class="panel-card p-4 h-100">
-            <span class="hero-badge mb-3">Machine Learning</span>
+            <span class="hero-badge mb-3">Previsão</span>
             <h1 class="section-title h3 mb-3">Treinamento de modelo</h1>
 
             <?php if (!empty($error)): ?>
@@ -37,7 +37,7 @@ $activateModelAction = $isAdmin ? '/admin/ml/models/activate' : '/ml/models/acti
             <?php if ($isAdmin): ?>
                 <form method="get" action="/admin/ml/retrain" class="row g-3 mb-4">
                     <div class="col-12">
-                        <label class="form-label" for="company_filter">Company ID</label>
+                        <label class="form-label" for="company_filter">ID da empresa</label>
                         <input class="form-control form-control-lg" id="company_filter" name="company_id" type="number" min="1" value="<?= e($companyId) ?>">
                     </div>
                     <div class="col-12 d-grid">
@@ -49,12 +49,15 @@ $activateModelAction = $isAdmin ? '/admin/ml/models/activate' : '/ml/models/acti
             <form method="post" action="<?= e($uploadAction) ?>" enctype="multipart/form-data" class="row g-3">
                 <?php if ($isAdmin): ?>
                     <div class="col-12">
-                        <label class="form-label" for="company_id">Company ID para upload</label>
+                        <label class="form-label" for="company_id">ID da empresa para upload</label>
                         <input class="form-control form-control-lg" id="company_id" name="company_id" type="number" min="1" required value="<?= e($companyId) ?>">
                     </div>
                 <?php endif; ?>
                 <div class="col-12">
-                    <label class="form-label" for="file">Nova base histórica .xlsx</label>
+                    <div class="d-flex justify-content-between align-items-center gap-3 mb-2">
+                        <label class="form-label mb-0" for="file">Nova base histórica .xlsx</label>
+                        <a class="btn btn-sm btn-outline-dark" href="/assets/templates/modelo-base-treinamento.xlsx" download>Baixar modelo</a>
+                    </div>
                     <input class="form-control form-control-lg" id="file" name="file" type="file" accept=".xlsx" required>
                 </div>
                 <div class="col-12 d-grid">
@@ -84,7 +87,7 @@ $activateModelAction = $isAdmin ? '/admin/ml/models/activate' : '/ml/models/acti
                             <tr>
                                 <th></th>
                                 <th>Base</th>
-                                <?php if ($isAdmin): ?><th>Company</th><?php endif; ?>
+                                <?php if ($isAdmin): ?><th>Empresa</th><?php endif; ?>
                                 <th>Registros</th>
                                 <th>Descartadas</th>
                                 <th>Ações</th>
@@ -195,7 +198,7 @@ $activateModelAction = $isAdmin ? '/admin/ml/models/activate' : '/ml/models/acti
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-3">
                 <div>
                     <h2 class="section-title h4 mb-1">Modelos treinados</h2>
-                    <p class="text-secondary mb-0">Somente um modelo fica ativo por company.</p>
+                    <p class="text-secondary mb-0">Somente um modelo fica ativo por empresa.</p>
                 </div>
                 <span class="stat-chip"><?= e((string) count($models)) ?> modelos</span>
             </div>
@@ -204,9 +207,16 @@ $activateModelAction = $isAdmin ? '/admin/ml/models/activate' : '/ml/models/acti
                     <thead>
                         <tr>
                             <th>Modelo</th>
-                            <?php if ($isAdmin): ?><th>Company</th><?php endif; ?>
+                            <?php if ($isAdmin): ?><th>Empresa</th><?php endif; ?>
                             <th>Status</th>
-                            <th>Métricas</th>
+                            <th>
+                                <span class="metrics-help">
+                                    Métricas
+                                    <span class="metrics-help-box">
+                                        MAE mostra o erro médio em dias; quanto menor, melhor. RMSE pesa mais os erros grandes; quanto menor, mais estável. R2 indica quanto da variação histórica o modelo explica; mais perto de 1 é melhor.
+                                    </span>
+                                </span>
+                            </th>
                             <th>Ação</th>
                         </tr>
                     </thead>
@@ -218,7 +228,6 @@ $activateModelAction = $isAdmin ? '/admin/ml/models/activate' : '/ml/models/acti
                                 <tr>
                                     <td>
                                         <strong>#<?= e((string) ($model['id'] ?? '-')) ?></strong>
-                                        <div class="small text-secondary"><?= e((string) ($model['artifactsId'] ?? '-')) ?></div>
                                         <div class="small text-secondary">Bases: <?= e((string) ($model['origemInputIds'] ?? $model['inputId'] ?? '-')) ?></div>
                                     </td>
                                     <?php if ($isAdmin): ?>
@@ -260,7 +269,6 @@ $activateModelAction = $isAdmin ? '/admin/ml/models/activate' : '/ml/models/acti
         <div class="info-card p-4 h-100">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h2 class="section-title h4 mb-0">Treinos recentes</h2>
-                <a class="btn btn-sm btn-outline-dark" href="<?= e($isAdmin ? '/admin/ml/trainings' . $querySuffix : '/ml/trainings') ?>">Histórico</a>
             </div>
             <div class="table-responsive">
                 <table class="table align-middle">

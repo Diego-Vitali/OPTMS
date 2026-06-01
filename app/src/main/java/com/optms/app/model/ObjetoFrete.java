@@ -24,6 +24,13 @@ public class ObjetoFrete {
     @Column(name = "tabela_id")
     private Long tabelaId;
 
+    @Column(name = "uf_origem")
+    private String ufOrigem;
+
+    @Column(name = "uf_destino")
+    private String ufDestino;
+
+    /** Campo legado: destino usado por tabelas antigas. */
     @Column(name = "uf")
     private String uf;
 

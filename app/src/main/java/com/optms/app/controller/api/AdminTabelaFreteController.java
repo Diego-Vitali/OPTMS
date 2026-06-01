@@ -1,6 +1,7 @@
 package com.optms.app.controller.api;
 
 import com.optms.app.dto.TabelaFreteUploadResponse;
+import com.optms.app.dto.TabelaFreteDetalheResponse;
 import com.optms.app.model.TabelaFrete;
 import com.optms.app.service.TabelaFreteService;
 import java.util.List;
@@ -27,6 +28,11 @@ public class AdminTabelaFreteController {
     @GetMapping
     public ResponseEntity<List<TabelaFrete>> listar(@RequestParam(required = false) Long companyId) {
         return ResponseEntity.ok(tabelaFreteService.listarComoAdmin(companyId));
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<TabelaFreteDetalheResponse> obter(@PathVariable Long id) {
+        return ResponseEntity.ok(tabelaFreteService.obterDetalhesComoAdmin(id));
     }
 
     @PostMapping("/upload-xlsx")
