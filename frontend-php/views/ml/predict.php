@@ -28,6 +28,12 @@ $factors = $result['top_fatores_explicacao'] ?? [];
             <?php endif; ?>
 
             <form method="post" action="/previsoes" class="row g-3">
+                <?php if (!empty($isAdmin)): ?>
+                    <div class="col-12">
+                        <label class="form-label" for="company_id">Company ID</label>
+                        <input class="form-control form-control-lg" id="company_id" name="company_id" type="number" min="1" required value="<?= e($form['company_id'] ?? '') ?>">
+                    </div>
+                <?php endif; ?>
                 <div class="col-md-6">
                     <label class="form-label" for="peso_total_bruto">Peso total bruto</label>
                     <input class="form-control form-control-lg" id="peso_total_bruto" name="peso_total_bruto" type="number" step="0.01" min="0.01" required value="<?= e($form['peso_total_bruto'] ?? '') ?>">

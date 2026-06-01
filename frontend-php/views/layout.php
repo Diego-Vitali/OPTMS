@@ -30,7 +30,8 @@
                             <li class="nav-item"><a class="nav-link" href="/admin/cotacoes">Cotações</a></li>
                             <li class="nav-item"><a class="nav-link" href="/previsoes">Previsões</a></li>
                             <li class="nav-item"><a class="nav-link" href="/admin/apikeys">API Keys</a></li>
-                            <li class="nav-item"><a class="nav-link" href="/ml/retrain">Treinamento ML</a></li>
+                            <li class="nav-item"><a class="nav-link" href="/admin/ml/retrain">Treinamento ML</a></li>
+                            <li class="nav-item"><a class="nav-link" href="/admin/ml/trainings">Histórico ML</a></li>
                         <?php else: ?>
                             <li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li>
                             <li class="nav-item"><a class="nav-link" href="/usuarios">Usuários</a></li>
@@ -38,6 +39,7 @@
                             <li class="nav-item"><a class="nav-link" href="/cotacoes">Cotações</a></li>
                             <li class="nav-item"><a class="nav-link" href="/previsoes">Previsões</a></li>
                             <li class="nav-item"><a class="nav-link" href="/ml/retrain">Treinamento ML</a></li>
+                            <li class="nav-item"><a class="nav-link" href="/ml/trainings">Histórico ML</a></li>
                             <li class="nav-item"><a class="nav-link" href="/apikeys">API Keys</a></li>
                         <?php endif; ?>
                         <li class="nav-item"><a class="nav-link text-warning" href="/logout">Sair</a></li>

@@ -11,6 +11,8 @@ import java.util.Set;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.util.IOUtils;
+import org.apache.poi.util.RecordFormatException;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -19,6 +21,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Component
 public class TrainingExcelParser {
+
+    private static final int XLSX_BYTE_ARRAY_MAX_OVERRIDE = 300_000_000;
 
     private static final Set<String> REQUIRED_HEADERS = Set.of(
             "UF_ORIGEM",
@@ -32,10 +36,12 @@ public class TrainingExcelParser {
             "TRANSIT_TIME_REAL"
     );
 
-    public List<Map<String, Object>> parse(MultipartFile file) {
+    public TrainingParseResult parse(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Arquivo xlsx não informado");
         }
+
+        IOUtils.setByteArrayMaxOverride(XLSX_BYTE_ARRAY_MAX_OVERRIDE);
 
         try (InputStream inputStream = file.getInputStream(); Workbook workbook = new XSSFWorkbook(inputStream)) {
             Sheet sheet = workbook.getSheetAt(0);
@@ -47,6 +53,7 @@ public class TrainingExcelParser {
             ExcelSupport.requireHeaders(headers, REQUIRED_HEADERS);
 
             List<Map<String, Object>> records = new ArrayList<>();
+            int discardedRows = 0;
             for (int index = sheet.getFirstRowNum() + 1; index <= sheet.getLastRowNum(); index++) {
                 Row row = sheet.getRow(index);
                 if (ExcelSupport.isBlank(row)) {
@@ -63,6 +70,12 @@ public class TrainingExcelParser {
                 record.put("UF emitente NF", normalizeUf(ExcelSupport.text(row, headers, "UF_ORIGEM")));
                 record.put("UF destinatário NF", normalizeUf(ExcelSupport.text(row, headers, "UF_DESTINO")));
                 record.put("transit time", ExcelSupport.integer(row, headers, "TRANSIT_TIME_REAL"));
+
+                if (!isValidTrainingRecord(record)) {
+                    discardedRows++;
+                    continue;
+                }
+
                 records.add(record);
             }
 
@@ -70,7 +83,10 @@ public class TrainingExcelParser {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nenhum registro de treinamento foi encontrado");
             }
 
-            return records;
+            return new TrainingParseResult(records, discardedRows);
+        } catch (RecordFormatException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "O arquivo xlsx excede o limite interno de leitura ou está corrompido", exception);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         } catch (IOException exception) {
@@ -108,5 +124,24 @@ public class TrainingExcelParser {
             case "CABOTAGEM" -> "Cabotagem";
             default -> value.trim();
         };
+    }
+
+    private boolean isValidTrainingRecord(Map<String, Object> record) {
+        return record.get("Peso total bruto") instanceof Number
+                && record.get("Metro cúbico") instanceof Number
+                && record.get("Valor NF") instanceof Number
+                && record.get("Volume NF") instanceof Number
+                && record.get("transit time") instanceof Number
+                && hasText(record.get("Tipo de frete NF"))
+                && hasText(record.get("Via de transporte"))
+                && hasText(record.get("UF emitente NF"))
+                && hasText(record.get("UF destinatário NF"));
+    }
+
+    private boolean hasText(Object value) {
+        return value != null && !value.toString().isBlank();
+    }
+
+    public record TrainingParseResult(List<Map<String, Object>> records, int discardedRows) {
     }
 }

@@ -458,7 +458,7 @@ async def predict(data: FreightInput):
         # Lazy Loading: Só vai no disco rígido se o modelo não estiver na RAM
         global modelos_em_memoria
         if artifacts_id not in modelos_em_memoria:
-            caminho_arquivo = f"api_artifacts/{artifacts_id}"
+            caminho_arquivo = os.path.join(ARTIFACTS_DIR, artifacts_id)
             if not os.path.exists(caminho_arquivo):
                 return {"error": f"Arquivo físico '{artifacts_id}' corrompido ou não encontrado no servidor."}
             
@@ -553,13 +553,21 @@ async def retrain_model(request: RetrainRequest):
         logger.info(f"Iniciando retreino para Company: {request.company_id} | Lote de Entrada: {request.input_id}")
         
         # 1. Busca Segura no PostgreSQL (Evita SQL Injection)
-        query = text("SELECT * FROM public.dados_treino_operacional WHERE input_id = :input_id")
+        query = text("""
+            SELECT dados.*
+            FROM public.dados_treino_operacional dados
+            INNER JOIN public.lotes_treino lote ON lote.id = dados.input_id
+            WHERE dados.input_id = :input_id AND lote.company_id = :company_id
+        """)
         
         # O Pandas é capaz de ler a query SQL e virar uma tabela na mesma hora!
-        df = pd.read_sql(query, db_engine, params={"input_id": request.input_id})
+        df = pd.read_sql(query, db_engine, params={
+            "input_id": request.input_id,
+            "company_id": request.company_id
+        })
         
         if df.empty:
-            return {"error": f"Nenhum dado operacional encontrado para o input_id {request.input_id}"}
+            return {"error": f"Nenhum dado operacional encontrado para a company_id {request.company_id} e input_id {request.input_id}"}
             
         mapeamento_banco_para_ml = {
             "peso_total_bruto": "Peso_total_bruto",
@@ -573,6 +581,8 @@ async def retrain_model(request: RetrainRequest):
             # O transit_time_dias já está minúsculo no código Python, então não precisa mapear
         }
         df = df.rename(columns=mapeamento_banco_para_ml)
+        for coluna in ["Peso_total_bruto", "Metro_cubico", "Valor_NF", "Volume_NF", "transit_time_dias"]:
+            df[coluna] = pd.to_numeric(df[coluna])
 
         # 2. Separação de Variáveis (Dropamos as colunas de ID do banco que não servem para a IA)
         cols_to_drop = ["id", "input_id", "transit_time_dias"]
@@ -584,16 +594,16 @@ async def retrain_model(request: RetrainRequest):
         
         # 4. Gera o ID único do Artefato e salva o arquivo físico
         artifacts_id = f"modelo_cia{request.company_id}_{uuid.uuid4().hex[:8]}.pkl"
-        os.makedirs("api_artifacts", exist_ok=True)
-        caminho_arquivo = f"api_artifacts/{artifacts_id}"
+        os.makedirs(ARTIFACTS_DIR, exist_ok=True)
+        caminho_arquivo = os.path.join(ARTIFACTS_DIR, artifacts_id)
         joblib.dump(artefatos, caminho_arquivo)
         
         # Atualiza o modelo carregado na memória global da API para resposta imediata
-        global mlops_system
-        mlops_system = artefatos
+        global modelos_em_memoria
+        modelos_em_memoria[artifacts_id] = artefatos
         
         # 5. O CATÁLOGO (Model Registry e Data Lineage)
-        with db_engine.connect() as conn:
+        with db_engine.begin() as conn:
             # A. Desativa qualquer modelo antigo dessa mesma empresa
             conn.execute(
                 text("UPDATE public.catalogo_artefatos_ml SET ativo = FALSE WHERE company_id = :cid"),
@@ -617,14 +627,19 @@ async def retrain_model(request: RetrainRequest):
                     "fe": metrics["usou_feature_engineering"]
                 }
             )
-            conn.commit() # Essencial para gravar de fato no Postgres
             
         logger.info(f"Retreino concluído. Artefato salvo: {artifacts_id}")
         
         return {
             "status": "sucesso",
             "message": "Modelo treinado, catalogado e ativado no sistema MLOps.",
+            "company_id": request.company_id,
+            "input_id": request.input_id,
             "artifacts_id": artifacts_id,
+            "n_registros_treino": int(len(df)),
+            "mae_kfold": metrics["mae_kfold"],
+            "rmse_kfold": metrics["rmse_kfold"],
+            "r2_kfold": metrics["r2_kfold"],
             "metrics": metrics
         }
         

@@ -75,4 +75,22 @@
             </div>
         </a>
     </div>
+    <div class="col-md-6 col-xl-4">
+        <a class="quick-link" href="/admin/ml/retrain">
+            <div class="panel-card p-4 h-100">
+                <div class="quick-link-icon mb-3">07</div>
+                <h2 class="h5 section-title">Treinamento ML</h2>
+                <p class="text-secondary mb-0">Treine e ative modelos vinculados à Company informada pelo ID.</p>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-6 col-xl-4">
+        <a class="quick-link" href="/admin/ml/trainings">
+            <div class="panel-card p-4 h-100">
+                <div class="quick-link-icon mb-3">08</div>
+                <h2 class="h5 section-title">Histórico ML</h2>
+                <p class="text-secondary mb-0">Acompanhe treinamentos em execução, concluídos e com falha.</p>
+            </div>
+        </a>
+    </div>
 </section>

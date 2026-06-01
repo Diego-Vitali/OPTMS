@@ -360,19 +360,25 @@ switch (true) {
             'via_transporte' => trim((string) ($_POST['via_transporte'] ?? 'Rodoviário')),
             'uf_emitente_nf' => trim((string) ($_POST['uf_emitente_nf'] ?? '')),
             'uf_destinatario_nf' => trim((string) ($_POST['uf_destinatario_nf'] ?? '')),
+            'company_id' => trim((string) ($_POST['company_id'] ?? '')),
         ]);
 
+        $predictionPayload = [
+            'pesoTotalBruto' => (float) $form['peso_total_bruto'],
+            'metroCubico' => (float) $form['metro_cubico'],
+            'valorNF' => (float) $form['valor_nf'],
+            'volumeNF' => (int) $form['volume_nf'],
+            'tipoFreteNF' => $form['tipo_frete_nf'],
+            'viaTransporte' => $form['via_transporte'],
+            'ufEmitenteNF' => strtoupper($form['uf_emitente_nf']),
+            'ufDestinatarioNF' => strtoupper($form['uf_destinatario_nf']),
+        ];
+        if (is_admin_session()) {
+            $predictionPayload['companyId'] = $form['company_id'] === '' ? null : (int) $form['company_id'];
+        }
+
         try {
-            $result = $apiClient->postJson('/api/ml/predict', [
-                'pesoTotalBruto' => (float) $form['peso_total_bruto'],
-                'metroCubico' => (float) $form['metro_cubico'],
-                'valorNF' => (float) $form['valor_nf'],
-                'volumeNF' => (int) $form['volume_nf'],
-                'tipoFreteNF' => $form['tipo_frete_nf'],
-                'viaTransporte' => $form['via_transporte'],
-                'ufEmitenteNF' => strtoupper($form['uf_emitente_nf']),
-                'ufDestinatarioNF' => strtoupper($form['uf_destinatario_nf']),
-            ], current_company_api_key(), current_api_headers());
+            $result = $apiClient->postJson('/api/ml/predict', $predictionPayload, current_company_api_key(), current_api_headers());
 
             View::render('ml/predict', [
                 'title' => 'Previsões',
@@ -393,31 +399,234 @@ switch (true) {
 
     case $path === '/ml/retrain' && $method === 'GET':
         require_authentication();
-        View::render('ml/retrain', [
-            'title' => 'Treinamento do Modelo',
-            'isAdmin' => is_admin_session(),
-        ]);
+        if (is_admin_session()) {
+            redirect('/admin/ml/retrain');
+        }
+        try {
+            View::render('ml/retrain', array_merge([
+                'title' => 'Treinamento do Modelo',
+                'isAdmin' => false,
+            ], ml_workspace_data($apiClient, false, '', trim((string) ($_GET['dataset_id'] ?? '')))));
+        } catch (ApiException $exception) {
+            guard_authenticated_api_exception($exception);
+            View::render('ml/retrain', [
+                'title' => 'Treinamento do Modelo',
+                'isAdmin' => false,
+                'datasets' => [],
+                'jobs' => [],
+                'models' => [],
+                'records' => [],
+                'error' => $exception->getMessage(),
+            ]);
+        }
         break;
 
     case $path === '/ml/retrain' && $method === 'POST':
         require_authentication();
+        if (is_admin_session()) {
+            redirect('/admin/ml/retrain');
+        }
 
         try {
             $result = $apiClient->postMultipart('/api/ml/retrain/upload-xlsx', [
                 'file' => $_FILES['file'] ?? null,
             ], [], current_company_api_key(), current_api_headers());
 
-            View::render('ml/retrain', [
+            View::render('ml/retrain', array_merge([
                 'title' => 'Treinamento do Modelo',
                 'result' => $result,
-                'isAdmin' => is_admin_session(),
+                'isAdmin' => false,
+            ], ml_workspace_data($apiClient, false)));
+        } catch (ApiException $exception) {
+            guard_authenticated_api_exception($exception);
+            View::render('ml/retrain', array_merge([
+                'title' => 'Treinamento do Modelo',
+                'error' => $exception->getMessage(),
+                'isAdmin' => false,
+            ], ml_workspace_data($apiClient, false)));
+        }
+        break;
+
+    case $path === '/ml/train' && $method === 'POST':
+        require_authentication();
+        if (is_admin_session()) {
+            redirect('/admin/ml/retrain');
+        }
+        try {
+            $inputIds = array_map('intval', (array) ($_POST['input_ids'] ?? []));
+            $apiClient->postJson('/api/ml/train', [
+                'inputIds' => $inputIds,
+            ], current_company_api_key(), current_api_headers());
+            flash('success', 'Treinamento iniciado com as bases selecionadas.');
+        } catch (ApiException $exception) {
+            guard_authenticated_api_exception($exception);
+            flash('danger', $exception->getMessage());
+        }
+        redirect('/ml/retrain');
+
+    case $path === '/ml/datasets/delete' && $method === 'POST':
+        require_authentication();
+        if (is_admin_session()) {
+            redirect('/admin/ml/retrain');
+        }
+        try {
+            $apiClient->delete('/api/ml/datasets/' . urlencode((string) ($_POST['input_id'] ?? '')), current_company_api_key(), current_api_headers());
+            flash('success', 'Base de dados excluída.');
+        } catch (ApiException $exception) {
+            guard_authenticated_api_exception($exception);
+            flash('danger', $exception->getMessage());
+        }
+        redirect('/ml/retrain');
+
+    case $path === '/ml/models/activate' && $method === 'POST':
+        require_authentication();
+        if (is_admin_session()) {
+            redirect('/admin/ml/retrain');
+        }
+        try {
+            $apiClient->patchJson('/api/ml/models/' . urlencode((string) ($_POST['model_id'] ?? '')) . '/activate', [], current_company_api_key(), current_api_headers());
+            flash('success', 'Modelo ativado para a company.');
+        } catch (ApiException $exception) {
+            guard_authenticated_api_exception($exception);
+            flash('danger', $exception->getMessage());
+        }
+        redirect('/ml/retrain');
+
+    case $path === '/ml/trainings' && $method === 'GET':
+        require_authentication();
+        if (is_admin_session()) {
+            redirect('/admin/ml/trainings');
+        }
+        try {
+            $jobs = $apiClient->getJson('/api/ml/retrain/jobs', current_company_api_key(), current_api_headers());
+            View::render('ml/trainings', [
+                'title' => 'Histórico de Treinamentos',
+                'jobs' => is_array($jobs) ? $jobs : [],
+                'isAdmin' => false,
             ]);
+        } catch (ApiException $exception) {
+            guard_authenticated_api_exception($exception);
+            View::render('ml/trainings', [
+                'title' => 'Histórico de Treinamentos',
+                'jobs' => [],
+                'isAdmin' => false,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+        break;
+
+    case $path === '/admin/ml/retrain' && $method === 'GET':
+        require_admin();
+        $companyId = trim((string) ($_GET['company_id'] ?? ''));
+        try {
+            View::render('ml/retrain', array_merge([
+                'title' => 'Treinamento do Modelo',
+                'isAdmin' => true,
+                'form' => ['company_id' => $companyId],
+            ], ml_workspace_data($apiClient, true, $companyId, trim((string) ($_GET['dataset_id'] ?? '')))));
         } catch (ApiException $exception) {
             guard_authenticated_api_exception($exception);
             View::render('ml/retrain', [
                 'title' => 'Treinamento do Modelo',
+                'isAdmin' => true,
+                'form' => ['company_id' => $companyId],
+                'datasets' => [],
+                'jobs' => [],
+                'models' => [],
+                'records' => [],
                 'error' => $exception->getMessage(),
-                'isAdmin' => is_admin_session(),
+            ]);
+        }
+        break;
+
+    case $path === '/admin/ml/retrain' && $method === 'POST':
+        require_admin();
+        $companyId = trim((string) ($_POST['company_id'] ?? ''));
+
+        try {
+            $result = $apiClient->postMultipart('/api/admin/ml/retrain/upload-xlsx', [
+                'file' => $_FILES['file'] ?? null,
+            ], [
+                'companyId' => $companyId,
+            ], current_company_api_key());
+
+            View::render('ml/retrain', array_merge([
+                'title' => 'Treinamento do Modelo',
+                'result' => $result,
+                'isAdmin' => true,
+                'form' => ['company_id' => $companyId],
+            ], ml_workspace_data($apiClient, true, $companyId)));
+        } catch (ApiException $exception) {
+            guard_authenticated_api_exception($exception);
+            View::render('ml/retrain', array_merge([
+                'title' => 'Treinamento do Modelo',
+                'error' => $exception->getMessage(),
+                'isAdmin' => true,
+                'form' => ['company_id' => $companyId],
+            ], ml_workspace_data($apiClient, true, $companyId)));
+        }
+        break;
+
+    case $path === '/admin/ml/train' && $method === 'POST':
+        require_admin();
+        $companyId = trim((string) ($_POST['company_id'] ?? ''));
+        try {
+            $apiClient->postJson('/api/admin/ml/train', [
+                'companyId' => $companyId === '' ? null : (int) $companyId,
+                'inputIds' => array_map('intval', (array) ($_POST['input_ids'] ?? [])),
+            ], current_company_api_key());
+            flash('success', 'Treinamento iniciado com as bases selecionadas.');
+        } catch (ApiException $exception) {
+            guard_authenticated_api_exception($exception);
+            flash('danger', $exception->getMessage());
+        }
+        redirect('/admin/ml/retrain' . ($companyId !== '' ? '?company_id=' . urlencode($companyId) : ''));
+
+    case $path === '/admin/ml/datasets/delete' && $method === 'POST':
+        require_admin();
+        $companyId = trim((string) ($_POST['company_id'] ?? ''));
+        $suffix = $companyId !== '' ? '?companyId=' . urlencode($companyId) : '';
+        try {
+            $apiClient->delete('/api/admin/ml/datasets/' . urlencode((string) ($_POST['input_id'] ?? '')) . $suffix, current_company_api_key());
+            flash('success', 'Base de dados excluída.');
+        } catch (ApiException $exception) {
+            guard_authenticated_api_exception($exception);
+            flash('danger', $exception->getMessage());
+        }
+        redirect('/admin/ml/retrain' . ($companyId !== '' ? '?company_id=' . urlencode($companyId) : ''));
+
+    case $path === '/admin/ml/models/activate' && $method === 'POST':
+        require_admin();
+        $companyId = trim((string) ($_POST['company_id'] ?? ''));
+        try {
+            $apiClient->patchJson('/api/admin/ml/models/' . urlencode((string) ($_POST['model_id'] ?? '')) . '/activate', [], current_company_api_key());
+            flash('success', 'Modelo ativado para a company.');
+        } catch (ApiException $exception) {
+            guard_authenticated_api_exception($exception);
+            flash('danger', $exception->getMessage());
+        }
+        redirect('/admin/ml/retrain' . ($companyId !== '' ? '?company_id=' . urlencode($companyId) : ''));
+
+    case $path === '/admin/ml/trainings' && $method === 'GET':
+        require_admin();
+        $companyId = trim((string) ($_GET['company_id'] ?? ''));
+        $suffix = $companyId !== '' ? '?companyId=' . urlencode($companyId) : '';
+        try {
+            $jobs = $apiClient->getJson('/api/admin/ml/retrain/jobs' . $suffix, current_company_api_key());
+            View::render('ml/trainings', [
+                'title' => 'Histórico de Treinamentos',
+                'jobs' => is_array($jobs) ? $jobs : [],
+                'isAdmin' => true,
+                'form' => ['company_id' => $companyId],
+            ]);
+        } catch (ApiException $exception) {
+            guard_authenticated_api_exception($exception);
+            View::render('ml/trainings', [
+                'title' => 'Histórico de Treinamentos',
+                'jobs' => [],
+                'isAdmin' => true,
+                'form' => ['company_id' => $companyId],
+                'error' => $exception->getMessage(),
             ]);
         }
         break;
@@ -977,7 +1186,34 @@ function default_prediction_form(array $overrides = []): array
         'via_transporte' => 'Rodoviário',
         'uf_emitente_nf' => '',
         'uf_destinatario_nf' => '',
+        'company_id' => '',
     ], $overrides);
+}
+
+function ml_workspace_data(ApiClient $apiClient, bool $isAdmin, string $companyId = '', string $datasetId = ''): array
+{
+    $prefix = $isAdmin ? '/api/admin/ml' : '/api/ml';
+    $apiKey = current_company_api_key();
+    $headers = $isAdmin ? [] : current_api_headers();
+    $companySuffix = $isAdmin && $companyId !== '' ? '?companyId=' . urlencode($companyId) : '';
+
+    $datasets = $apiClient->getJson($prefix . '/datasets' . $companySuffix, $apiKey, $headers);
+    $jobs = $apiClient->getJson($prefix . '/retrain/jobs' . $companySuffix, $apiKey, $headers);
+    $models = $apiClient->getJson($prefix . '/models' . $companySuffix, $apiKey, $headers);
+
+    $records = [];
+    if ($datasetId !== '') {
+        $recordsSuffix = $isAdmin && $companyId !== '' ? '?companyId=' . urlencode($companyId) : '';
+        $records = $apiClient->getJson($prefix . '/datasets/' . urlencode($datasetId) . '/records' . $recordsSuffix, $apiKey, $headers);
+    }
+
+    return [
+        'datasets' => is_array($datasets) ? $datasets : [],
+        'jobs' => is_array($jobs) ? $jobs : [],
+        'models' => is_array($models) ? $models : [],
+        'records' => is_array($records) ? $records : [],
+        'selectedDatasetId' => $datasetId,
+    ];
 }
 
 function default_company_form(array $overrides = []): array

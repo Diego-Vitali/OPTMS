@@ -24,8 +24,8 @@ services:
       dockerfile: Dockerfile
     container_name: tma-ml-api
     restart: unless-stopped
-    ports:                 # <-- MUDADO DE 'expose' PARA 'ports'
-      - "8001:8001"
+    expose:
+      - "8001"
     volumes:
       - ./machineLearning/api/api_artifacts:/app/api_artifacts
     healthcheck:
@@ -50,6 +50,8 @@ services:
       SPRING_JPA_DATABASE_PLATFORM: org.hibernate.dialect.PostgreSQLDialect
       SPRING_JPA_HIBERNATE_DDL_AUTO: update
       ML_API_BASE_URL: http://ml-api:8001
+      SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: 100MB
+      SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: 100MB
     depends_on:
       postgres:
         condition: service_healthy

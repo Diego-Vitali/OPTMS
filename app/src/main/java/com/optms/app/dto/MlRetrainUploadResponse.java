@@ -1,6 +1,7 @@
 package com.optms.app.dto;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Map;
 import lombok.Getter;
 import lombok.Setter;
@@ -11,6 +12,19 @@ public class MlRetrainUploadResponse {
 
     private String status;
     private String error;
+    private String message;
+
+    @JsonProperty("company_id")
+    @JsonAlias("companyId")
+    private Long companyId;
+
+    @JsonProperty("input_id")
+    @JsonAlias("inputId")
+    private Long inputId;
+
+    @JsonProperty("artifacts_id")
+    @JsonAlias("artifactsId")
+    private String artifactsId;
 
     @JsonAlias("n_registros_treino")
     private Integer nRegistrosTreino;
@@ -29,6 +43,8 @@ public class MlRetrainUploadResponse {
 
     @JsonAlias("r2_kfold")
     private Double r2Kfold;
+
+    private Map<String, Object> metrics;
 
     @JsonAlias("info_modelo")
     private Map<String, Object> infoModelo;

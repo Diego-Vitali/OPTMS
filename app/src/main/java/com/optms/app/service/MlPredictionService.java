@@ -26,6 +26,10 @@ public class MlPredictionService {
     }
 
     public MlPredictResponse predict(MlPredictRequest request) {
+        if (request.getCompanyId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "companyId é obrigatório para previsão");
+        }
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
@@ -53,9 +57,22 @@ public class MlPredictionService {
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "O serviço de ML retornou uma resposta vazia");
             }
 
+            if (response.getError() != null && !response.getError().isBlank()) {
+                if (isMissingActiveModel(response.getError())) {
+                    throw new ResponseStatusException(HttpStatus.NOT_FOUND, response.getError());
+                }
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, response.getError());
+            }
+
             return response;
         } catch (RestClientException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Falha ao comunicar com o serviço de ML", exception);
         }
+    }
+
+    private boolean isMissingActiveModel(String message) {
+        String normalized = message.toLowerCase();
+        return normalized.contains("nenhum modelo ativo")
+                || normalized.contains("no active model");
     }
 }

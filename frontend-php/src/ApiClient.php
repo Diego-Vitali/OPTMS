@@ -111,7 +111,7 @@ final class ApiClient
                 'header' => implode("\r\n", $requestHeaders),
                 'content' => $body ?? '',
                 'ignore_errors' => true,
-                'timeout' => 60,
+                'timeout' => 300,
             ],
         ]);
 

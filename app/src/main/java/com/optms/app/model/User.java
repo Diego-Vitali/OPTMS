@@ -26,7 +26,7 @@ public class User {
     @Column(name = "name")
     private String name;
 
-    @Column(name = "companyId")
+    @Column(name = "company_id")
     private Long companyId;
 
     @Column(name = "email")
@@ -36,7 +36,7 @@ public class User {
     @JsonIgnore
     private String password;
 
-    @Column(name = "createdAt")
+    @Column(name = "created_at")
     private Timestamp createdAt;
 
     @Column(name = "active")

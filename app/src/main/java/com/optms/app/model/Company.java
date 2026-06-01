@@ -31,7 +31,7 @@ public class Company {
     @Column(name = "document")
     private String document;
 
-    @Column(name = "createdAt")
+    @Column(name = "created_at")
     private Timestamp createdAt;
 
     @Column(name = "active")

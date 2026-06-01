@@ -16,6 +16,8 @@ import java.util.stream.Collectors;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.util.IOUtils;
+import org.apache.poi.util.RecordFormatException;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -24,6 +26,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Component
 public class FreightTableExcelParser {
+
+    private static final int XLSX_BYTE_ARRAY_MAX_OVERRIDE = 300_000_000;
 
     private static final Set<String> REQUIRED_HEADERS = Set.of(
             "UF_ORIGEM",
@@ -41,6 +45,8 @@ public class FreightTableExcelParser {
         if (file == null || file.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Arquivo xlsx não informado");
         }
+
+        IOUtils.setByteArrayMaxOverride(XLSX_BYTE_ARRAY_MAX_OVERRIDE);
 
         try (InputStream inputStream = file.getInputStream(); Workbook workbook = new XSSFWorkbook(inputStream)) {
             Sheet configSheet = workbook.getSheet("Config");
@@ -95,6 +101,9 @@ public class FreightTableExcelParser {
             request.setAtiva(true);
             request.setObjetos(buildObjects(rows, rangeType));
             return request;
+        } catch (RecordFormatException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "O arquivo xlsx excede o limite interno de leitura ou está corrompido", exception);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         } catch (IOException exception) {

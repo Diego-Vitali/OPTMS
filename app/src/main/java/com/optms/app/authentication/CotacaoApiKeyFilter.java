@@ -31,8 +31,15 @@ public class CotacaoApiKeyFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !"/api/cotacoes".equals(request.getRequestURI())
-                || !"POST".equalsIgnoreCase(request.getMethod());
+        if (Boolean.TRUE.equals(request.getAttribute(MasterApiKey.MASTER_ACCESS_ATTRIBUTE))) {
+            return true;
+        }
+
+        String path = request.getRequestURI();
+        boolean supportsExternalApiKey = "/api/cotacoes".equals(path)
+                || "/api/ml/predict".equals(path);
+
+        return !supportsExternalApiKey || !"POST".equalsIgnoreCase(request.getMethod());
     }
 
     @Override

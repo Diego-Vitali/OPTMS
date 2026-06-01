@@ -19,15 +19,34 @@ public class SchemaMaintenanceService implements CommandLineRunner {
                 "name TEXT, " +
                 "social_name TEXT, " +
                 "document TEXT, " +
-                "createdAt TIMESTAMP, " +
+                "created_at TIMESTAMP, " +
                 "active BOOLEAN DEFAULT TRUE, " +
                 "apikey VARCHAR(22))");
         jdbcTemplate.execute("ALTER TABLE IF EXISTS companies ADD COLUMN IF NOT EXISTS social_name TEXT");
         jdbcTemplate.execute("ALTER TABLE IF EXISTS companies ADD COLUMN IF NOT EXISTS document TEXT");
-        jdbcTemplate.execute("ALTER TABLE IF EXISTS companies ADD COLUMN IF NOT EXISTS createdAt TIMESTAMP");
+        jdbcTemplate.execute("ALTER TABLE IF EXISTS companies ADD COLUMN IF NOT EXISTS created_at TIMESTAMP");
         jdbcTemplate.execute("ALTER TABLE IF EXISTS companies ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE");
         jdbcTemplate.execute("ALTER TABLE IF EXISTS companies ADD COLUMN IF NOT EXISTS apikey VARCHAR(22)");
         jdbcTemplate.execute("UPDATE companies SET active = TRUE WHERE active IS NULL");
         jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_companies_apikey ON companies (apikey)");
+        jdbcTemplate.execute("ALTER TABLE IF EXISTS lotes_treino ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'TREINANDO'");
+        jdbcTemplate.execute("ALTER TABLE IF EXISTS lotes_treino ADD COLUMN IF NOT EXISTS mensagem_erro TEXT");
+        jdbcTemplate.execute("ALTER TABLE IF EXISTS lotes_treino ADD COLUMN IF NOT EXISTS finalizado_em TIMESTAMP");
+        jdbcTemplate.execute("ALTER TABLE IF EXISTS lotes_treino ADD COLUMN IF NOT EXISTS artifacts_id VARCHAR(255)");
+        jdbcTemplate.execute("ALTER TABLE IF EXISTS lotes_treino ADD COLUMN IF NOT EXISTS n_registros_treino INTEGER DEFAULT 0");
+        jdbcTemplate.execute("ALTER TABLE IF EXISTS lotes_treino ADD COLUMN IF NOT EXISTS linhas_descartadas INTEGER DEFAULT 0");
+        jdbcTemplate.execute("ALTER TABLE IF EXISTS lotes_treino ADD COLUMN IF NOT EXISTS mae_kfold DECIMAL(8, 4)");
+        jdbcTemplate.execute("ALTER TABLE IF EXISTS lotes_treino ADD COLUMN IF NOT EXISTS rmse_kfold DECIMAL(8, 4)");
+        jdbcTemplate.execute("ALTER TABLE IF EXISTS lotes_treino ADD COLUMN IF NOT EXISTS r2_kfold DECIMAL(6, 4)");
+        jdbcTemplate.execute("ALTER TABLE IF EXISTS lotes_treino ADD COLUMN IF NOT EXISTS origem_input_ids TEXT");
+        try {
+            jdbcTemplate.execute("DO $$ BEGIN " +
+                    "IF to_regclass('public.catalogo_artefatos_ml') IS NOT NULL THEN " +
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_catalogo_artefatos_company_ativo ON catalogo_artefatos_ml (company_id) WHERE ativo = TRUE; " +
+                    "END IF; " +
+                    "END $$");
+        } catch (RuntimeException exception) {
+            // H2 used by tests does not support PostgreSQL DO blocks.
+        }
     }
 }

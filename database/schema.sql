@@ -99,6 +99,16 @@ CREATE TABLE IF NOT EXISTS public.lotes_treino (
     company_id BIGINT NOT NULL,
     descricao TEXT,
     criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(20) DEFAULT 'TREINANDO',
+    mensagem_erro TEXT,
+    finalizado_em TIMESTAMP,
+    artifacts_id VARCHAR(255),
+    n_registros_treino INTEGER DEFAULT 0,
+    linhas_descartadas INTEGER DEFAULT 0,
+    mae_kfold DECIMAL(8, 4),
+    rmse_kfold DECIMAL(8, 4),
+    r2_kfold DECIMAL(6, 4),
+    origem_input_ids TEXT,
     
     CONSTRAINT fk_lotes_company FOREIGN KEY (company_id) 
         REFERENCES public.companies(id) ON DELETE CASCADE
@@ -163,3 +173,6 @@ CREATE TABLE IF NOT EXISTS public.catalogo_artefatos_ml (
 -- Índices para busca rápida do modelo ativo da empresa no endpoint /predict/
 CREATE INDEX IF NOT EXISTS idx_artefatos_company_ativo ON public.catalogo_artefatos_ml(company_id, ativo);
 CREATE INDEX IF NOT EXISTS idx_artefatos_input_id ON public.catalogo_artefatos_ml(input_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_catalogo_artefatos_company_ativo
+    ON public.catalogo_artefatos_ml(company_id)
+    WHERE ativo = TRUE;

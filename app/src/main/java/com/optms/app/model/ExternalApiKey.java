@@ -26,7 +26,7 @@ public class ExternalApiKey {
     @Column(name = "apikey")
     private String apikey;
 
-    @Column(name = "companyId")
+    @Column(name = "company_id")
     private Long companyId;
 
     @Column(name = "active")
