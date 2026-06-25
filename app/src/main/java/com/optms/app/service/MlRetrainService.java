@@ -279,6 +279,9 @@ public class MlRetrainService {
             }
 
             markCompleted(inputId, response);
+        } catch (org.springframework.web.client.HttpStatusCodeException exception) {
+            String body = exception.getResponseBodyAsString();
+            markFailed(inputId, new RuntimeException("Falha ao comunicar com o serviço de ML: " + body, exception));
         } catch (RuntimeException exception) {
             markFailed(inputId, exception);
         }

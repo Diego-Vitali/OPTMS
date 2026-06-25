@@ -28,7 +28,7 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 @RequestMapping("/api/empresas")
 @RequiredArgsConstructor
-public class companyController {
+public class CompanyController {
  
     private final CompanyRepository companyRepository;
     private final CompanyService companyService;

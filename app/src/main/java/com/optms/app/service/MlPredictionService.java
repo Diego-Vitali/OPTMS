@@ -65,8 +65,11 @@ public class MlPredictionService {
             }
 
             return response;
+        } catch (org.springframework.web.client.HttpStatusCodeException exception) {
+            String body = exception.getResponseBodyAsString();
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Falha ao comunicar com o serviço de ML: " + body, exception);
         } catch (RestClientException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Falha ao comunicar com o serviço de ML", exception);
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Falha ao comunicar com o serviço de ML: " + exception.getMessage(), exception);
         }
     }
 
